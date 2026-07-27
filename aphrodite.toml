@@ -1,0 +1,48 @@
+# Aphrodite Agent config — OpenRouter with Gemma 3 1B
+
+[general]
+language = "en-US"
+timezone = "America/Vancouver"
+default_character = "mira"
+
+[provider]
+active = "openrouter"
+
+[provider.instances.openrouter]
+enabled = true
+base_url = "https://openrouter.ai/api/v1"
+api_key = "${OPENROUTER_API_KEY}"
+model = "google/gemma-4-31b-it:free"
+temperature = 0.8
+max_output_tokens = 2048
+context_window_tokens = 8192
+
+[provider.instances.local]
+enabled = true
+base_url = "http://localhost:11434/v1"
+api_key = "ollama"
+model = "qwen3:8b"
+temperature = 0.8
+max_output_tokens = 2048
+
+[context]
+active_profile = "8k"
+
+[proactive]
+enabled = false
+
+[world]
+enabled = true
+journal_time = "21:30"
+
+[mood]
+baseline_valence = 0.15
+baseline_arousal = 0.40
+
+[logging]
+level = "INFO"
+debug_mode = true
+
+[api]
+enabled = true
+port = 8765

@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>Aphrodite Agent</title>
+  <style>
+    :root {
+      --font-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --background: #090a0f;
+      --background-elevated: #0e1018;
+      --surface: #131621;
+      --surface-raised: #191d2a;
+      --surface-hover: #202536;
+      --surface-active: #292f43;
+      --text-primary: #f7f7fb;
+      --text-secondary: #a8adbd;
+      --text-muted: #777d90;
+      --border: rgba(255, 255, 255, 0.09);
+      --border-strong: rgba(255, 255, 255, 0.15);
+      --accent: #a78bfa;
+      --accent-strong: #8b5cf6;
+      --accent-soft: rgba(167, 139, 250, 0.14);
+      --accent-text: #ffffff;
+      --success: #56d69a;
+      --warning: #f7c566;
+      --danger: #fb7185;
+      --user-bubble: linear-gradient(135deg, #7c3aed, #9f67f1);
+      --assistant-bubble: #161a26;
+      --shadow: 0 18px 50px rgba(0,0,0,0.28), 0 2px 10px rgba(0,0,0,0.18);
+      --sidebar-width: 340px;
+      --topbar-height: 66px;
+      --composer-max-width: 900px;
+      --radius-sm: 8px;
+      --radius-md: 13px;
+      --radius-lg: 18px;
+      --radius-xl: 24px;
+    }
+    html[data-theme="light"] {
+      --background: #f5f6fa;
+      --background-elevated: #ffffff;
+      --surface: #ffffff;
+      --surface-raised: #f4f5f9;
+      --surface-hover: #eceef5;
+      --surface-active: #e4e6ef;
+      --text-primary: #171923;
+      --text-secondary: #565d70;
+      --text-muted: #858b9d;
+      --border: rgba(20,24,38,0.09);
+      --border-strong: rgba(20,24,38,0.16);
+      --accent: #7c3aed;
+      --accent-strong: #6d28d9;
+      --accent-soft: rgba(124,58,237,0.1);
+      --accent-text: #ffffff;
+      --assistant-bubble: #ffffff;
+      --shadow: 0 18px 45px rgba(30,34,50,0.1), 0 2px 8px rgba(30,34,50,0.06);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body { overflow: hidden; background: var(--background); color: var(--text-primary); font-family: var(--font-sans); font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+    button, input, textarea, select { color: inherit; font: inherit; }
+    button { border: 0; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .app-shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0,1fr); height: 100%; min-height: 0; }
+    .sidebar { position: relative; z-index: 30; display: flex; min-width: 0; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); background: radial-gradient(circle at 10% 0%, rgba(139,92,246,0.12), transparent 28%), var(--background-elevated); }
+    .sidebar-header { display: flex; align-items: center; justify-content: space-between; min-height: var(--topbar-height); padding: 12px 15px 10px 18px; border-bottom: 1px solid var(--border); }
+    .brand { display: flex; min-width: 0; align-items: center; gap: 11px; }
+    .brand-mark { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border: 1px solid rgba(167,139,250,0.38); border-radius: 13px; background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.26), transparent 22%), linear-gradient(145deg, #c4b5fd, #7c3aed); box-shadow: 0 8px 20px rgba(124,58,237,0.25); color: white; font-size: 19px; font-weight: 750; }
+    .brand-copy { min-width: 0; }
+    .brand-title { overflow: hidden; font-size: 15px; font-weight: 720; letter-spacing: -0.01em; text-overflow: ellipsis; white-space: nowrap; }
+    .connection-status { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--text-muted); font-size: 12px; }
+    .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--text-muted); box-shadow: 0 0 0 3px rgba(119,125,144,0.1); }
+    .connection-status.online .status-dot { background: var(--success); box-shadow: 0 0 0 3px rgba(86,214,154,0.12); }
+    .connection-status.offline .status-dot { background: var(--danger); box-shadow: 0 0 0 3px rgba(251,113,133,0.12); }
+    .icon-button { display: inline-grid; width: 38px; height: 38px; flex: 0 0 auto; cursor: pointer; place-items: center; border: 1px solid transparent; border-radius: 11px; background: transparent; color: var(--text-secondary); transition: background 140ms, color 140ms, border-color 140ms, transform 140ms; }
+    .icon-button:hover { border-color: var(--border); background: var(--surface-hover); color: var(--text-primary); }
+    .icon-button:active { transform: scale(0.96); }
+    .icon-button svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .sidebar-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+    .profile-card { margin: 16px 16px 13px; padding: 15px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: linear-gradient(145deg, rgba(167,139,250,0.09), transparent 52%), var(--surface); box-shadow: 0 12px 30px rgba(0,0,0,0.08); }
+    .profile-row { display: flex; align-items: center; gap: 12px; }
+    .character-avatar { display: grid; width: 48px; height: 48px; flex: 0 0 auto; place-items: center; border: 1px solid rgba(196,181,253,0.42); border-radius: 16px; background: radial-gradient(circle at 35% 25%, rgba(255,255,255,0.34), transparent 20%), linear-gradient(145deg, #d8b4fe, #8b5cf6); box-shadow: 0 8px 25px rgba(124,58,237,0.2); color: white; font-size: 18px; font-weight: 780; }
+    .profile-copy { min-width: 0; flex: 1; }
+    .character-name { overflow: hidden; font-size: 16px; font-weight: 720; letter-spacing: -0.01em; text-overflow: ellipsis; white-space: nowrap; }
+    .character-mood { display: inline-flex; max-width: 100%; align-items: center; gap: 6px; margin-top: 4px; padding: 3px 8px; overflow: hidden; border: 1px solid rgba(167,139,250,0.18); border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .activity-block { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .eyebrow { color: var(--text-muted); font-size: 11px; font-weight: 720; letter-spacing: 0.075em; text-transform: uppercase; }
+    .activity-text { margin-top: 4px; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+    .sidebar-nav { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 5px; padding: 0 16px 13px; }
+    .nav-button { min-width: 0; padding: 8px 5px; cursor: pointer; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--text-muted); font-size: 11px; font-weight: 660; transition: background 140ms, color 140ms, border-color 140ms; }
+    .nav-button:hover { background: var(--surface-hover); color: var(--text-secondary); }
+    .nav-button.active { border-color: var(--border); background: var(--accent-soft); color: var(--accent); }
+    .sidebar-panel { display: none; padding: 0 16px 22px; }
+    .sidebar-panel.active { display: block; animation: panel-in 160ms ease; }
+    @keyframes panel-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+    .section-card { margin-bottom: 12px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+    .section-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 13px; border-bottom: 1px solid var(--border); }
+    .section-title { font-size: 13px; font-weight: 700; }
+    .section-action { cursor: pointer; padding: 4px 7px; border-radius: 7px; background: transparent; color: var(--text-muted); font-size: 11px; font-weight: 650; }
+    .section-action:hover { background: var(--surface-hover); color: var(--text-primary); }
+    .section-content { padding: 12px 13px; }
+    .info-grid { display: grid; gap: 9px; }
+    .info-row { display: grid; grid-template-columns: 88px minmax(0,1fr); gap: 10px; align-items: start; }
+    .info-label { color: var(--text-muted); font-size: 12px; }
+    .info-value { min-width: 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: 12px; text-align: right; }
+    .journal-date { color: var(--accent); font-size: 11px; font-weight: 680; }
+    .journal-summary { margin: 6px 0 0; color: var(--text-primary); font-size: 13px; font-weight: 660; line-height: 1.45; }
+    .journal-body { margin: 9px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+    .character-list, .memory-results { display: grid; gap: 8px; }
+    .character-item, .memory-item { padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); }
+    .character-item-title { color: var(--text-primary); font-size: 12px; font-weight: 680; overflow-wrap: anywhere; }
+    .character-files { margin-top: 5px; color: var(--text-muted); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+    .memory-item { color: var(--text-secondary); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+    .search-form, .simulate-form { display: flex; gap: 8px; }
+    .field { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); color: var(--text-primary); transition: border-color 140ms, box-shadow 140ms; }
+    .field:hover { border-color: var(--border-strong); }
+    .field:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+    .text-field { height: 38px; padding: 0 10px; }
+    .number-field { width: 88px; flex: 0 0 auto; height: 38px; padding: 0 10px; }
+    .primary-button { min-height: 38px; padding: 0 13px; cursor: pointer; border-radius: 10px; background: var(--accent-strong); color: var(--accent-text); font-size: 12px; font-weight: 690; transition: filter 140ms, transform 140ms, opacity 140ms; }
+    .primary-button:hover { filter: brightness(1.08); }
+    .primary-button:active { transform: scale(0.98); }
+    .primary-button:disabled { cursor: not-allowed; opacity: 0.52; }
+    .empty-copy, .loading-copy { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+    .error-copy { color: var(--danger); font-size: 12px; line-height: 1.5; }
+    .simulation-output { max-height: 220px; margin: 11px 0 0; overflow: auto; color: var(--text-secondary); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+    .main { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: radial-gradient(circle at 52% -10%, rgba(124,58,237,0.08), transparent 31%), var(--background); }
+    .topbar { position: relative; z-index: 10; display: flex; min-height: var(--topbar-height); align-items: center; justify-content: space-between; gap: 14px; padding: 10px max(18px, env(safe-area-inset-right)) 10px max(18px, env(safe-area-inset-left)); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--background) 87%, transparent); backdrop-filter: blur(16px); }
+    .topbar-left { display: flex; min-width: 0; align-items: center; gap: 11px; }
+    .mobile-menu-button { display: none; }
+    .conversation-name { overflow: hidden; font-size: 14px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .conversation-subtitle { overflow: hidden; margin-top: 1px; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .topbar-actions { display: flex; align-items: center; gap: 4px; }
+    .chat-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+    .messages { width: min(100%, 930px); min-height: 100%; margin: 0 auto; padding: 30px max(20px, env(safe-area-inset-right)) 38px max(20px, env(safe-area-inset-left)); }
+    .welcome { display: grid; min-height: 330px; place-items: center; padding: 24px 0 42px; text-align: center; }
+    .welcome-inner { max-width: 590px; }
+    .welcome-mark { display: grid; width: 58px; height: 58px; margin: 0 auto 17px; place-items: center; border: 1px solid rgba(196,181,253,0.38); border-radius: 20px; background: radial-gradient(circle at 34% 28%, rgba(255,255,255,0.34), transparent 20%), linear-gradient(145deg, #c4b5fd, #7c3aed); box-shadow: 0 16px 40px rgba(124,58,237,0.23); color: white; font-size: 24px; font-weight: 780; }
+    .welcome h1 { margin: 0; font-size: clamp(25px, 4vw, 34px); font-weight: 730; letter-spacing: -0.035em; }
+    .welcome p { max-width: 530px; margin: 10px auto 0; color: var(--text-secondary); font-size: 14px; line-height: 1.65; }
+    .prompt-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; margin-top: 25px; text-align: left; }
+    .prompt-button { min-height: 68px; padding: 11px 13px; cursor: pointer; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); color: var(--text-secondary); font-size: 12px; line-height: 1.45; transition: background 140ms, border-color 140ms, color 140ms, transform 140ms; }
+    .prompt-button:hover { border-color: var(--border-strong); background: var(--surface-hover); color: var(--text-primary); transform: translateY(-1px); }
+    .message-row { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 11px; margin: 0 0 24px; animation: message-in 180ms ease; }
+    @keyframes message-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    .message-row.user { grid-template-columns: minmax(0,1fr) 34px; }
+    .message-avatar { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); color: var(--text-secondary); font-size: 11px; font-weight: 750; }
+    .message-row.assistant .message-avatar { border-color: rgba(167,139,250,0.3); background: var(--accent-soft); color: var(--accent); }
+    .message-row.user .message-avatar { grid-column: 2; background: var(--surface-hover); }
+    .message-content { min-width: 0; max-width: 780px; }
+    .message-row.user .message-content { grid-row: 1; justify-self: end; }
+    .message-meta { display: flex; align-items: center; gap: 7px; margin: 0 2px 6px; color: var(--text-muted); font-size: 11px; }
+    .message-row.user .message-meta { justify-content: flex-end; }
+    .message-author { color: var(--text-secondary); font-weight: 680; }
+    .message-bubble { display: inline-block; max-width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 5px var(--radius-lg) var(--radius-lg) var(--radius-lg); background: var(--assistant-bubble); box-shadow: 0 6px 20px rgba(0,0,0,0.06); color: var(--text-primary); font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .message-row.user .message-bubble { border-color: transparent; border-radius: var(--radius-lg) 5px var(--radius-lg) var(--radius-lg); background: var(--user-bubble); color: white; }
+    .message-row.system { display: block; margin: 8px auto 20px; text-align: center; }
+    .message-row.system .message-bubble { padding: 8px 11px; border-radius: 10px; background: var(--surface); color: var(--danger); font-size: 12px; }
+    .typing-row { display: none; }
+    .typing-row.visible { display: grid; }
+    .typing-indicator { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 12px 15px; border: 1px solid var(--border); border-radius: 5px var(--radius-lg) var(--radius-lg) var(--radius-lg); background: var(--assistant-bubble); }
+    .typing-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); animation: typing-bounce 1.15s infinite ease-in-out; }
+    .typing-dot:nth-child(2) { animation-delay: 0.14s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.28s; }
+    @keyframes typing-bounce { 0%,60%,100% { opacity: 0.4; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-4px); } }
+    .composer-area { position: relative; z-index: 10; flex: 0 0 auto; padding: 10px max(18px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); background: linear-gradient(to top, var(--background) 72%, color-mix(in srgb, var(--background) 85%, transparent)); }
+    .composer-wrap { width: min(100%, var(--composer-max-width)); margin: 0 auto; }
+    .composer { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: end; padding: 8px 8px 8px 14px; border: 1px solid var(--border-strong); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); transition: border-color 140ms, box-shadow 140ms; }
+    .composer:focus-within { border-color: rgba(167,139,250,0.6); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
+    .composer textarea { width: 100%; min-height: 32px; max-height: 180px; resize: none; overflow-y: auto; padding: 6px 0 5px; border: 0; outline: 0; background: transparent; color: var(--text-primary); line-height: 1.5; }
+    .composer textarea::placeholder { color: var(--text-muted); }
+    .send-button { display: grid; width: 40px; height: 40px; cursor: pointer; place-items: center; border-radius: 12px; background: var(--accent-strong); color: white; transition: filter 140ms, opacity 140ms, transform 140ms; }
+    .send-button:hover { filter: brightness(1.08); }
+    .send-button:active { transform: scale(0.96); }
+    .send-button:disabled { cursor: not-allowed; opacity: 0.4; filter: none; }
+    .send-button svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .composer-hint { margin: 7px 4px 0; color: var(--text-muted); font-size: 10px; text-align: center; }
+    .toast-region { position: fixed; z-index: 100; right: 18px; bottom: 18px; display: grid; width: min(340px, calc(100vw - 36px)); gap: 8px; pointer-events: none; }
+    .toast { padding: 11px 13px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); color: var(--text-secondary); font-size: 12px; line-height: 1.45; animation: toast-in 180ms ease; }
+    .toast.error { border-color: rgba(251,113,133,0.3); color: var(--danger); }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .mobile-backdrop { display: none; }
+    @media (max-width: 860px) {
+      .app-shell { display: block; }
+      .sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: min(var(--sidebar-width), calc(100vw - 46px)); border-right: 1px solid var(--border-strong); box-shadow: var(--shadow); transform: translateX(-105%); transition: transform 190ms ease; }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-backdrop { position: fixed; z-index: 25; inset: 0; display: block; pointer-events: none; background: rgba(0,0,0,0.48); opacity: 0; transition: opacity 190ms ease; }
+      .mobile-backdrop.visible { pointer-events: auto; opacity: 1; }
+      .main { height: 100%; }
+      .mobile-menu-button { display: inline-grid; }
+    }
+    @media (max-width: 600px) {
+      :root { --topbar-height: 60px; }
+      .topbar { padding-right: 12px; padding-left: 10px; }
+      .messages { padding-top: 22px; padding-right: 13px; padding-left: 13px; }
+      .welcome { min-height: 280px; padding-top: 12px; }
+      .prompt-grid { grid-template-columns: 1fr; }
+      .message-row { grid-template-columns: 30px minmax(0,1fr); gap: 8px; margin-bottom: 20px; }
+      .message-row.user { grid-template-columns: minmax(0,1fr) 30px; }
+      .message-avatar { width: 29px; height: 29px; border-radius: 9px; font-size: 10px; }
+      .message-bubble { padding: 10px 12px; font-size: 13px; }
+      .composer-area { padding-right: 10px; padding-left: 10px; }
+      .composer-hint { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <header class="sidebar-header">
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div class="brand-copy">
+          <div class="brand-title">Aphrodite Agent</div>
+          <div class="connection-status" id="connectionStatus">
+            <span class="status-dot"></span>
+            <span id="connectionText">Checking API</span>
+          </div>
+        </div>
+      </div>
+      <button class="icon-button" id="closeSidebarButton" type="button" hidden>
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="sidebar-scroll">
+      <!-- Profile card -->
+      <section class="profile-card">
+        <div class="profile-row">
+          <div class="character-avatar" id="characterAvatar">A</div>
+          <div class="profile-copy">
+            <div class="character-name" id="characterName">Aphrodite</div>
+            <div class="character-mood" id="characterMood">Mood unavailable</div>
+          </div>
+        </div>
+        <div class="activity-block">
+          <div class="eyebrow">Current activity</div>
+          <div class="activity-text" id="characterActivity">Waiting for world state</div>
+        </div>
+      </section>
+
+      <!-- Nav buttons -->
+      <nav class="sidebar-nav">
+        <button class="nav-button active" data-panel="overview">Overview</button>
+        <button class="nav-button" data-panel="journal">Journal</button>
+        <button class="nav-button" data-panel="world">World</button>
+        <button class="nav-button" data-panel="memory">Memory</button>
+      </nav>
+
+      <!-- Panel: Overview -->
+      <section class="sidebar-panel active" id="panel-overview" data-panel-content="overview">
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title">Characters</div>
+            <button class="section-action" id="refreshCharactersButton">Refresh</button>
+          </div>
+          <div class="section-content"><div class="character-list" id="characterList"><div class="loading-copy">Loading...</div></div></div>
+        </div>
+        <div class="section-card">
+          <div class="section-header"><div class="section-title">Simulation</div></div>
+          <div class="section-content">
+            <form class="simulate-form" id="simulateForm">
+              <input class="field number-field" id="simulateHours" type="number" min="1" max="8760" value="1" inputmode="numeric">
+              <button class="primary-button" id="simulateButton" type="submit">Simulate</button>
+            </form>
+            <pre class="simulation-output" id="simulationOutput"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel: Journal -->
+      <section class="sidebar-panel" id="panel-journal" data-panel-content="journal">
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title">Latest journal</div>
+            <button class="section-action" id="refreshJournalButton">Refresh</button>
+          </div>
+          <div class="section-content" id="journalContent"><div class="loading-copy">Loading...</div></div>
+        </div>
+      </section>
+
+      <!-- Panel: World -->
+      <section class="sidebar-panel" id="panel-world" data-panel-content="world">
+        <div class="section-card">
+          <div class="section-header">
+            <div class="section-title">World state</div>
+            <button class="section-action" id="refreshWorldButton">Refresh</button>
+          </div>
+          <div class="section-content">
+            <div class="info-grid">
+              <div class="info-row"><div class="info-label">Character</div><div class="info-value" id="worldCharacter">...</div></div>
+              <div class="info-row"><div class="info-label">Mood</div><div class="info-value" id="worldMood">...</div></div>
+              <div class="info-row"><div class="info-label">Activity</div><div class="info-value" id="worldActivity">...</div></div>
+              <div class="info-row"><div class="info-label">Weather</div><div class="info-value" id="worldWeather">...</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel: Memory -->
+      <section class="sidebar-panel" id="panel-memory" data-panel-content="memory">
+        <div class="section-card">
+          <div class="section-header"><div class="section-title">Search memories</div></div>
+          <div class="section-content">
+            <form class="search-form" id="memorySearchForm">
+              <input class="field text-field" id="memoryQuery" type="search" placeholder="Search memories" required>
+              <button class="primary-button" id="memorySearchButton" type="submit">Search</button>
+            </form>
+            <div class="memory-results" id="memoryResults" style="margin-top:11px"><div class="empty-copy">Search Aphrodite's memories.</div></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <div class="mobile-backdrop" id="mobileBackdrop"></div>
+
+  <!-- Main content -->
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-button mobile-menu-button" id="openSidebarButton" type="button">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <div>
+          <div class="conversation-name" id="conversationName">Aphrodite</div>
+          <div class="conversation-subtitle" id="conversationSubtitle">Personal AI companion</div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-button" id="refreshAllButton" type="button" title="Refresh">
+          <svg viewBox="0 0 24 24"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M18.5 9a7 7 0 0 0-11.8-2.4L4 9"/><path d="M5.5 15a7 7 0 0 0 11.8 2.4L20 15"/></svg>
+        </button>
+        <button class="icon-button" id="themeToggleButton" type="button" title="Theme">
+          <svg id="themeIcon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="chat-scroll" id="chatScroll">
+      <div class="messages" id="messages">
+        <section class="welcome" id="welcome">
+          <div class="welcome-inner">
+            <div class="welcome-mark">A</div>
+            <h1>Talk with Aphrodite</h1>
+            <p>Share what is on your mind, explore her world, search memories, or advance the simulation from the sidebar.</p>
+            <div class="prompt-grid">
+              <button class="prompt-button" data-prompt="How are you feeling right now?">How are you feeling right now?</button>
+              <button class="prompt-button" data-prompt="What have you been thinking about today?">What have you been thinking about today?</button>
+              <button class="prompt-button" data-prompt="Tell me about your current surroundings.">Tell me about your current surroundings.</button>
+              <button class="prompt-button" data-prompt="Is there anything you want to remember?">Is there anything you want to remember?</button>
+            </div>
+          </div>
+        </section>
+        <div class="message-row assistant typing-row" id="typingRow">
+          <div class="message-avatar">A</div>
+          <div class="message-content">
+            <div class="message-meta"><span class="message-author">Aphrodite</span></div>
+            <div class="typing-indicator"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="composer-area">
+      <div class="composer-wrap">
+        <form class="composer" id="chatForm">
+          <textarea id="messageInput" rows="1" placeholder="Message Aphrodite" autocomplete="off"></textarea>
+          <button class="send-button" id="sendButton" type="submit" disabled>
+            <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+          </button>
+        </form>
+        <div class="composer-hint">Enter to send, Shift+Enter for new line</div>
+      </div>
+    </footer>
+  </main>
+</div>
+<div class="toast-region" id="toastRegion"></div>
+
+<script>
+"use strict";
+const API_BASE = "";
+const REQUEST_TIMEOUT_MS = 120000;
+
+const E = {
+  sidebar: document.getElementById("sidebar"),
+  mobileBackdrop: document.getElementById("mobileBackdrop"),
+  openSidebarButton: document.getElementById("openSidebarButton"),
+  closeSidebarButton: document.getElementById("closeSidebarButton"),
+  connectionStatus: document.getElementById("connectionStatus"),
+  connectionText: document.getElementById("connectionText"),
+  characterAvatar: document.getElementById("characterAvatar"),
+  characterName: document.getElementById("characterName"),
+  characterMood: document.getElementById("characterMood"),
+  characterActivity: document.getElementById("characterActivity"),
+  conversationName: document.getElementById("conversationName"),
+  conversationSubtitle: document.getElementById("conversationSubtitle"),
+  worldCharacter: document.getElementById("worldCharacter"),
+  worldMood: document.getElementById("worldMood"),
+  worldActivity: document.getElementById("worldActivity"),
+  worldWeather: document.getElementById("worldWeather"),
+  characterList: document.getElementById("characterList"),
+  journalContent: document.getElementById("journalContent"),
+  memorySearchForm: document.getElementById("memorySearchForm"),
+  memoryQuery: document.getElementById("memoryQuery"),
+  memorySearchButton: document.getElementById("memorySearchButton"),
+  memoryResults: document.getElementById("memoryResults"),
+  simulateForm: document.getElementById("simulateForm"),
+  simulateHours: document.getElementById("simulateHours"),
+  simulateButton: document.getElementById("simulateButton"),
+  simulationOutput: document.getElementById("simulationOutput"),
+  messages: document.getElementById("messages"),
+  welcome: document.getElementById("welcome"),
+  typingRow: document.getElementById("typingRow"),
+  chatScroll: document.getElementById("chatScroll"),
+  chatForm: document.getElementById("chatForm"),
+  messageInput: document.getElementById("messageInput"),
+  sendButton: document.getElementById("sendButton"),
+  refreshAllButton: document.getElementById("refreshAllButton"),
+  refreshWorldButton: document.getElementById("refreshWorldButton"),
+  refreshJournalButton: document.getElementById("refreshJournalButton"),
+  refreshCharactersButton: document.getElementById("refreshCharactersButton"),
+  themeToggleButton: document.getElementById("themeToggleButton"),
+  themeIcon: document.getElementById("themeIcon"),
+  toastRegion: document.getElementById("toastRegion")
+};
+const state = { chatPending: false, characterName: "Aphrodite" };
+
+async function req(path, opts={}) {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  const headers = new Headers(opts.headers||{});
+  if (opts.body && !headers.has("Content-Type")) headers.set("Content-Type","application/json");
+  try {
+    const r = await fetch(API_BASE+path, {...opts, headers, signal: ctrl.signal});
+    const text = await r.text();
+    let data = null;
+    if (text) try { data = JSON.parse(text); } catch { data = text; }
+    if (!r.ok) throw new Error(data?.error||data?.detail||`Status ${r.status}`);
+    return data;
+  } catch(e) {
+    if (e.name==="AbortError") throw new Error("Request timed out.");
+    if (e instanceof TypeError) throw new Error("Cannot reach API server.");
+    throw e;
+  } finally { clearTimeout(tid); }
+}
+
+function toast(msg, type="info") {
+  const t = document.createElement("div");
+  t.className = "toast" + (type==="error"?" error":"");
+  t.textContent = msg;
+  E.toastRegion.appendChild(t);
+  setTimeout(() => t.remove(), 4300);
+}
+
+function scrollDown() { requestAnimationFrame(() => E.chatScroll.scrollTop = E.chatScroll.scrollHeight); }
+
+function msg(role, text) {
+  if (E.welcome) E.welcome.remove();
+  if (role==="system") {
+    const r = document.createElement("div"); r.className="message-row system";
+    const b = document.createElement("div"); b.className="message-bubble"; b.textContent=text;
+    r.appendChild(b); E.messages.insertBefore(r, E.typingRow); scrollDown(); return;
+  }
+  const row = document.createElement("article"); row.className=`message-row ${role}`;
+  const av = document.createElement("div"); av.className="message-avatar"; av.textContent=role==="assistant"?state.characterName[0]||"A":"U";
+  const c = document.createElement("div"); c.className="message-content";
+  const meta = document.createElement("div"); meta.className="message-meta";
+  const a = document.createElement("span"); a.className="message-author"; a.textContent=role==="assistant"?state.characterName:"You";
+  const t = document.createElement("span"); t.textContent=new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+  const b = document.createElement("div"); b.className="message-bubble"; b.textContent=text;
+  meta.append(a,t); c.append(meta,b);
+  if (role==="user") row.append(c,av); else row.append(av,c);
+  E.messages.insertBefore(row, E.typingRow); scrollDown();
+}
+
+function typing(on) {
+  E.typingRow.classList.toggle("visible", on);
+  if (on) scrollDown();
+}
+
+async function send(msgText) {
+  const m = String(msgText||"").trim();
+  if (!m||state.chatPending) return;
+  msg("user", m);
+  E.messageInput.value=""; E.sendButton.disabled=true; state.chatPending=true; typing(true);
+  try {
+    const d = await req("/v1/chat", {method:"POST", body:JSON.stringify({message:m})});
+    const text = typeof d==="object"?d.response:d;
+    if (!text) throw new Error("Empty response from API.");
+    msg("assistant", text);
+  } catch(e) { msg("system", e.message); toast(e.message,"error"); }
+  finally { state.chatPending=false; E.sendButton.disabled=false; E.messageInput.focus(); }
+}
+
+async function health() {
+  try { await req("/health"); E.connectionStatus.className="connection-status online"; E.connectionText.textContent="Online"; return true; }
+  catch { E.connectionStatus.className="connection-status offline"; E.connectionText.textContent="API unavailable"; return false; }
+}
+
+async function loadWorld(silent) {
+  try {
+    const d = await req("/v1/world/state");
+    const name = d.character||"Aphrodite"; state.characterName=name;
+    E.characterName.textContent=name; E.characterAvatar.textContent=name[0];
+    E.characterMood.textContent=d.mood||"N/A"; E.characterActivity.textContent=d.activity||"N/A";
+    E.conversationName.textContent=name; E.conversationSubtitle.textContent=`${d.mood||""} · ${d.activity||""}`;
+    E.worldCharacter.textContent=d.character||"N/A"; E.worldMood.textContent=d.mood||"N/A";
+    E.worldActivity.textContent=d.activity||"N/A"; E.worldWeather.textContent=d.weather||"N/A";
+  } catch(e) { if(!silent) toast(e.message,"error"); throw e; }
+}
+
+async function loadJournal(silent) {
+  E.journalContent.innerHTML='<div class="loading-copy">Loading...</div>';
+  try {
+    const d = await req("/v1/journal/latest");
+    E.journalContent.innerHTML=`<div class="journal-date">${d.date||"No date"}</div><p class="journal-summary">${d.summary||"No summary"}</p><p class="journal-body">${d.body||"No body"}</p>`;
+  } catch(e) { E.journalContent.innerHTML=`<div class="error-copy">${e.message}</div>`; if(!silent) toast(e.message,"error"); throw e; }
+}
+
+async function loadChars(silent) {
+  E.characterList.innerHTML='<div class="loading-copy">Loading...</div>';
+  try {
+    const d = await req("/v1/characters");
+    const chars = d?.characters||[];
+    E.characterList.innerHTML=chars.length?chars.map(c=>`<div class="character-item"><div class="character-item-title">${c.id||"?"}</div><div class="character-files">${c.files||0} files</div></div>`).join(""):'<div class="empty-copy">No characters.</div>';
+  } catch(e) { E.characterList.innerHTML=`<div class="error-copy">${e.message}</div>`; if(!silent) toast(e.message,"error"); throw e; }
+}
+
+async function searchMem(q) {
+  q = String(q||"").trim();
+  if (!q) return;
+  E.memorySearchButton.disabled=true; E.memoryResults.innerHTML='<div class="loading-copy">Searching...</div>';
+  try {
+    const d = await req(`/v1/memory/search?q=${encodeURIComponent(q)}`);
+    const results = d?.results||[];
+    E.memoryResults.innerHTML=results.length?results.map(r=>`<div class="memory-item">${r.content||"?"}</div>`).join(""):'<div class="empty-copy">No matches.</div>';
+  } catch(e) { E.memoryResults.innerHTML=`<div class="error-copy">${e.message}</div>`; toast(e.message,"error"); }
+  finally { E.memorySearchButton.disabled=false; }
+}
+
+async function sim(h) {
+  h=Number(h); if(!Number.isFinite(h)||h<=0) return toast("Enter positive hours","error");
+  E.simulateButton.disabled=true; E.simulationOutput.textContent="Simulating...";
+  try {
+    const d = await req("/v1/simulate",{method:"POST",body:JSON.stringify({hours:h})});
+    E.simulationOutput.textContent=JSON.stringify(d||{completed:true},null,2);
+    toast(`Simulated ${h}h`);
+  } catch(e) { E.simulationOutput.textContent=e.message; toast(e.message,"error"); }
+  finally { E.simulateButton.disabled=false; }
+}
+
+async function refresh() {
+  E.refreshAllButton.disabled=true;
+  await Promise.allSettled([health(),loadWorld(true),loadJournal(true),loadChars(true)]);
+  E.refreshAllButton.disabled=false;
+}
+
+function panel(name) {
+  document.querySelectorAll(".nav-button").forEach(b=>{b.classList.toggle("active",b.dataset.panel===name); b.ariaPressed=String(b.dataset.panel===name);});
+  document.querySelectorAll("[data-panel-content]").forEach(p=>p.classList.toggle("active",p.dataset.panelContent===name));
+}
+
+function sidebarOpen() { E.sidebar.classList.add("open"); E.mobileBackdrop.classList.add("visible"); E.closeSidebarButton.hidden=false; }
+function sidebarClose() { E.sidebar.classList.remove("open"); E.mobileBackdrop.classList.remove("visible"); E.closeSidebarButton.hidden=true; }
+
+// Theme
+function theme(t) {
+  document.documentElement.dataset.theme=t;
+  E.themeIcon.innerHTML=t==="dark"?`<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>`:`<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/>`;
+  try { localStorage.setItem("aphrodite-theme", t); } catch {}
+}
+
+// Init
+E.chatForm.addEventListener("submit", e=>{e.preventDefault(); send(E.messageInput.value);});
+E.messageInput.addEventListener("input", ()=>{E.sendButton.disabled=state.chatPending||!E.messageInput.value.trim();});
+E.messageInput.addEventListener("keydown", e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();E.chatForm.requestSubmit();}});
+document.querySelectorAll("[data-prompt]").forEach(b=>b.addEventListener("click",()=>send(b.dataset.prompt)));
+document.querySelectorAll(".nav-button").forEach(b=>b.addEventListener("click",()=>{panel(b.dataset.panel);if(window.matchMedia("(max-width:860px)").matches)sidebarClose();}));
+E.memorySearchForm.addEventListener("submit",e=>{e.preventDefault();searchMem(E.memoryQuery.value);});
+E.simulateForm.addEventListener("submit",e=>{e.preventDefault();sim(E.simulateHours.value);});
+E.refreshAllButton.addEventListener("click",refresh);
+E.refreshWorldButton.addEventListener("click",()=>loadWorld().catch(()=>{}));
+E.refreshJournalButton.addEventListener("click",()=>loadJournal().catch(()=>{}));
+E.refreshCharactersButton.addEventListener("click",()=>loadChars().catch(()=>{}));
+E.themeToggleButton.addEventListener("click",()=>theme(document.documentElement.dataset.theme==="dark"?"light":"dark"));
+E.openSidebarButton.addEventListener("click",sidebarOpen);
+E.closeSidebarButton.addEventListener("click",sidebarClose);
+E.mobileBackdrop.addEventListener("click",sidebarClose);
+
+try { const s = localStorage.getItem("aphrodite-theme"); theme(s||"dark"); } catch { theme("dark"); }
+refresh();
+setInterval(health, 30000);
+</script>
+</body>
+</html>
