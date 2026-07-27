@@ -22,19 +22,21 @@ jobs:
         run: |
           pyinstaller \
             --onefile \
+            --paths src/ \
             --name aphrodite-linux \
             --add-data "aphrodite.toml:." \
-            --add-data "src/aphrodite/api/static:index.html" \
+            --add-data "src/aphrodite/api/static:aphrodite/api/static" \
             --hidden-import aiosqlite \
             --hidden-import pydantic \
             --hidden-import click \
             --hidden-import rich \
             --hidden-import structlog \
             --hidden-import httpx \
-            --hidden-import pyyaml \
-            --hidden-import python_dateutil \
+            --hidden-import yaml \
+            --hidden-import dateutil \
             --hidden-import keyring \
             --hidden-import tomli_w \
+            --hidden-import zoneinfo \
             scripts/aphrodite_launcher.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -59,19 +61,21 @@ jobs:
         run: |
           pyinstaller `
             --onefile `
+            --paths src/ `
             --name aphrodite-windows `
             --add-data "aphrodite.toml;." `
-            --add-data "src/aphrodite/api/static;static" `
+            --add-data "src/aphrodite/api/static;aphrodite/api/static" `
             --hidden-import aiosqlite `
             --hidden-import pydantic `
             --hidden-import click `
             --hidden-import rich `
             --hidden-import structlog `
             --hidden-import httpx `
-            --hidden-import pyyaml `
-            --hidden-import python_dateutil `
+            --hidden-import yaml `
+            --hidden-import dateutil `
             --hidden-import keyring `
             --hidden-import tomli_w `
+            --hidden-import zoneinfo `
             scripts/aphrodite_launcher.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -95,19 +99,21 @@ jobs:
         run: |
           pyinstaller \
             --onefile \
+            --paths src/ \
             --name aphrodite-macos \
             --add-data "aphrodite.toml:." \
-            --add-data "src/aphrodite/api/static:static" \
+            --add-data "src/aphrodite/api/static:aphrodite/api/static" \
             --hidden-import aiosqlite \
             --hidden-import pydantic \
             --hidden-import click \
             --hidden-import rich \
             --hidden-import structlog \
             --hidden-import httpx \
-            --hidden-import pyyaml \
-            --hidden-import python_dateutil \
+            --hidden-import yaml \
+            --hidden-import dateutil \
             --hidden-import keyring \
             --hidden-import tomli_w \
+            --hidden-import zoneinfo \
             scripts/aphrodite_launcher.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -115,7 +121,7 @@ jobs:
           name: aphrodite-macos
           path: dist/aphrodite-macos
 
-  release:
+  attach-release:
     needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
