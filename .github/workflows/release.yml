@@ -1,0 +1,131 @@
+name: Build Release Binaries
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pyinstaller
+      - name: Build binary
+        run: |
+          pyinstaller \
+            --onefile \
+            --name aphrodite-linux \
+            --add-data "aphrodite.toml:." \
+            --add-data "src/aphrodite/api/static:index.html" \
+            --hidden-import aiosqlite \
+            --hidden-import pydantic \
+            --hidden-import click \
+            --hidden-import rich \
+            --hidden-import structlog \
+            --hidden-import httpx \
+            --hidden-import pyyaml \
+            --hidden-import python_dateutil \
+            --hidden-import keyring \
+            --hidden-import tomli_w \
+            scripts/aphrodite_launcher.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aphrodite-linux
+          path: dist/aphrodite-linux
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pyinstaller
+      - name: Build binary
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --onefile `
+            --name aphrodite-windows `
+            --add-data "aphrodite.toml;." `
+            --add-data "src/aphrodite/api/static;static" `
+            --hidden-import aiosqlite `
+            --hidden-import pydantic `
+            --hidden-import click `
+            --hidden-import rich `
+            --hidden-import structlog `
+            --hidden-import httpx `
+            --hidden-import pyyaml `
+            --hidden-import python_dateutil `
+            --hidden-import keyring `
+            --hidden-import tomli_w `
+            scripts/aphrodite_launcher.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aphrodite-windows
+          path: dist/aphrodite-windows.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pyinstaller
+      - name: Build binary
+        run: |
+          pyinstaller \
+            --onefile \
+            --name aphrodite-macos \
+            --add-data "aphrodite.toml:." \
+            --add-data "src/aphrodite/api/static:static" \
+            --hidden-import aiosqlite \
+            --hidden-import pydantic \
+            --hidden-import click \
+            --hidden-import rich \
+            --hidden-import structlog \
+            --hidden-import httpx \
+            --hidden-import pyyaml \
+            --hidden-import python_dateutil \
+            --hidden-import keyring \
+            --hidden-import tomli_w \
+            scripts/aphrodite_launcher.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aphrodite-macos
+          path: dist/aphrodite-macos
+
+  release:
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            aphrodite-linux/aphrodite-linux
+            aphrodite-windows/aphrodite-windows.exe
+            aphrodite-macos/aphrodite-macos
