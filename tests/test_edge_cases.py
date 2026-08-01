@@ -92,7 +92,7 @@ class TestCHAR003_EmptyCharacter:
     def test_empty_identity_file(self, tmp_path):
         d = tmp_path / "blank"
         d.mkdir()
-        (d / "identity.md").write_text("")
+        (d / "identity.md").write_text("", encoding="utf-8")
         char = parse_character(d)
         assert char.identity.name == "Companion"
         assert char.identity.pronouns == "they/them"
@@ -100,7 +100,7 @@ class TestCHAR003_EmptyCharacter:
     def test_empty_personality_file(self, tmp_path):
         d = tmp_path / "blank-p"
         d.mkdir()
-        (d / "personality.md").write_text("")
+        (d / "personality.md").write_text("", encoding="utf-8")
         char = parse_character(d)
         sliders = char.personality
         # All defaults preserved
@@ -114,7 +114,7 @@ class TestCHAR003_InvalidFields:
     def test_identity_negative_age(self, tmp_path):
         d = tmp_path / "neg-age"
         d.mkdir()
-        (d / "identity.md").write_text("---\nname: Edge\nage: -5\n---\n")
+        (d / "identity.md").write_text("---\nname: Edge\nage: -5\n---\n", encoding="utf-8")
         char = parse_character(d)
         # _parse_identity does int(fm["age"]) — no range check, so -5 is stored
         assert char.identity.name == "Edge"
@@ -123,7 +123,7 @@ class TestCHAR003_InvalidFields:
     def test_identity_float_age(self, tmp_path):
         d = tmp_path / "float-age"
         d.mkdir()
-        (d / "identity.md").write_text("---\nage: 3.14\n---\n")
+        (d / "identity.md").write_text("---\nage: 3.14\n---\n", encoding="utf-8")
         char = parse_character(d)
         # Simple parser: "3.14" → replace(".","").isdigit() → "314".isdigit() = True
         # So it becomes float(3.14), then int(fm["age"]) on 3.14 → 3
@@ -134,14 +134,14 @@ class TestCHAR003_InvalidFields:
         # never brick app startup (final audit, 2026-07-31).
         d = tmp_path / "bad-age"
         d.mkdir()
-        (d / "identity.md").write_text("---\nage: not-a-number\n---\n")
+        (d / "identity.md").write_text("---\nage: not-a-number\n---\n", encoding="utf-8")
         char = parse_character(d)
         assert char.identity.age == 24
 
     def test_identity_no_frontmatter_no_sections(self, tmp_path):
         d = tmp_path / "no-sec"
         d.mkdir()
-        (d / "identity.md").write_text("Just some random text without headers.\n")
+        (d / "identity.md").write_text("Just some random text without headers.\n", encoding="utf-8")
         char = parse_character(d)
         # No sections found → core_identity stays empty
         assert char.identity.core_identity == ""
@@ -151,7 +151,9 @@ class TestCHAR003_InvalidFields:
         so sliders stay at defaults. This documents the limitation."""
         d = tmp_path / "extreme"
         d.mkdir()
-        (d / "personality.md").write_text("---\nsliders:\n  warmth: 9.9\n  flirtation: -3.0\n---\n")
+        (d / "personality.md").write_text(
+            "---\nsliders:\n  warmth: 9.9\n  flirtation: -3.0\n---\n", encoding="utf-8"
+        )
         char = parse_character(d)
         # The simple YAML parser treats "warmth: 9.9" as a string value for key "sliders",
         # not a dict. So _parse_personality's isinstance(fm["sliders"], dict) check fails.
@@ -163,7 +165,9 @@ class TestCHAR003_InvalidFields:
         """If sliders were provided as flat top-level keys (hypothetical format), they'd be ignored."""
         d = tmp_path / "flat"
         d.mkdir()
-        (d / "personality.md").write_text("---\nwarmth: 0.9\nflirtation: 0.5\n---\n")
+        (d / "personality.md").write_text(
+            "---\nwarmth: 0.9\nflirtation: 0.5\n---\n", encoding="utf-8"
+        )
         char = parse_character(d)
         # warmth is not a valid top-level slider key in the parser
         assert char.personality.warmth == 0.6
@@ -186,7 +190,7 @@ class TestCHAR003_InvalidFields:
     def test_emotional_missing_triggers(self, tmp_path):
         d = tmp_path / "no-trig"
         d.mkdir()
-        (d / "emotional.md").write_text("# Baseline\ncheerful\n")
+        (d / "emotional.md").write_text("# Baseline\ncheerful\n", encoding="utf-8")
         char = parse_character(d)
         assert char.emotion.baseline == "cheerful"
         assert char.emotion.triggers == []
@@ -225,14 +229,16 @@ class TestCHAR003_InvalidFields:
     def test_goals_empty_file(self, tmp_path):
         d = tmp_path / "goals-e"
         d.mkdir()
-        (d / "goals.md").write_text("")
+        (d / "goals.md").write_text("", encoding="utf-8")
         char = parse_character(d)
         assert char.goals == ""
 
     def test_unicode_identity(self, tmp_path):
         d = tmp_path / "unicode"
         d.mkdir()
-        (d / "identity.md").write_text("---\nname: 日本語\npronouns: 彼/彼女\n---\n")
+        (d / "identity.md").write_text(
+            "---\nname: 日本語\npronouns: 彼/彼女\n---\n", encoding="utf-8"
+        )
         char = parse_character(d)
         assert char.identity.name == "日本語"
         assert char.identity.pronouns == "彼/彼女"
@@ -241,7 +247,7 @@ class TestCHAR003_InvalidFields:
         d = tmp_path / "long-name"
         d.mkdir()
         long_name = "A" * 10000
-        (d / "identity.md").write_text(f"---\nname: {long_name}\n---\n")
+        (d / "identity.md").write_text(f"---\nname: {long_name}\n---\n", encoding="utf-8")
         char = parse_character(d)
         assert len(char.identity.name) == 10000
 
@@ -259,14 +265,18 @@ class TestCHAR003_InvalidFields:
     def test_boolean_frontmatter_field(self, tmp_path):
         d = tmp_path / "bool"
         d.mkdir()
-        (d / "identity.md").write_text("---\nname: BoolTest\nverified: true\n---\n")
+        (d / "identity.md").write_text(
+            "---\nname: BoolTest\nverified: true\n---\n", encoding="utf-8"
+        )
         char = parse_character(d)
         assert char.identity.name == "BoolTest"
 
     def test_list_frontmatter_field(self, tmp_path):
         d = tmp_path / "list"
         d.mkdir()
-        (d / "identity.md").write_text("---\nname: ListTest\ntags: [a, b, c]\n---\n")
+        (d / "identity.md").write_text(
+            "---\nname: ListTest\ntags: [a, b, c]\n---\n", encoding="utf-8"
+        )
         char = parse_character(d)
         assert char.identity.name == "ListTest"
 
