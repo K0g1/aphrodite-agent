@@ -405,6 +405,9 @@ async def run_api_server(
     config: Config, host: str = "127.0.0.1", port: int = 8765, character: str | None = None
 ):
     _validate_bind_host(host, config.api.allow_remote)
+    from aphrodite import enable_utf8_stdio
+
+    enable_utf8_stdio()
     # Remote binds fail closed: the auto-generated token would be readable by
     # anyone who can reach /, so require an explicitly configured secret.
     if config.api.allow_remote and not os.environ.get("APHRODITE_API_TOKEN", "").strip():

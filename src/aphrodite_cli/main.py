@@ -25,6 +25,9 @@ from aphrodite.simulation import SimulationEngine
 @click.pass_context
 def cli(ctx, config, character, debug):
     """Aphrodite Agent — Personal AI companion."""
+    from aphrodite import enable_utf8_stdio
+
+    enable_utf8_stdio()
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config
     ctx.obj["character"] = character
