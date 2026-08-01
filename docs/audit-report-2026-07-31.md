@@ -106,7 +106,11 @@ repository's package layout (`export/__init__.py`, `journal/__init__.py`,
 `export.py` / `journal.py` / `simulation.py` refer to those same files in
 their package form. All gates re-verified after the move (201 tests,
 85.8% coverage, ruff/mypy/bandit/pip-audit clean, wheel + fresh-venv suite
-green).
+green). GitHub Actions CI is **green on all 9 matrix jobs**
+(ubuntu/macos/windows × Python 3.11/3.12/3.13) — the reconciliation also
+fixed three platform bugs found by CI: tzdata runtime dependency for
+zoneinfo on macOS/Windows, TOML test fixtures escaping Windows paths, and
+UTF-8 stdio for the CLI on Windows consoles.
 
 ## 10. How to reproduce
 
