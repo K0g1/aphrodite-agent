@@ -260,7 +260,7 @@ def test_doctor_exits_nonzero_when_database_missing(tmp_path):
     from aphrodite_cli.main import cli
 
     cfg = tmp_path / "aphrodite.toml"
-    cfg.write_text(f'[general]\ndata_directory = "{tmp_path / "data"}"\n', encoding="utf-8")
+    cfg.write_text(f'[general]\ndata_directory = "{ (tmp_path / "data").as_posix() }"\n', encoding="utf-8")
     runner = CliRunner()
     result = runner.invoke(cli, ["--config", str(cfg), "doctor"])
     assert result.exit_code != 0
@@ -654,7 +654,7 @@ def test_selftest_exits_zero_on_healthy_system(tmp_path):
     from aphrodite_cli.main import cli
 
     cfg = tmp_path / "aphrodite.toml"
-    cfg.write_text(f'[general]\ndata_directory = "{tmp_path / "data"}"\n', encoding="utf-8")
+    cfg.write_text(f'[general]\ndata_directory = "{ (tmp_path / "data").as_posix() }"\n', encoding="utf-8")
     runner = CliRunner()
     result = runner.invoke(cli, ["--config", str(cfg), "selftest"])
     assert result.exit_code == 0, result.output
@@ -996,7 +996,7 @@ def test_cli_import_char_existing_character_is_clean(tmp_path):
 
     data = tmp_path / "data"
     cfg = tmp_path / "aphrodite.toml"
-    cfg.write_text(f'[general]\ndata_directory = "{data}"\n', encoding="utf-8")
+    cfg.write_text(f'[general]\ndata_directory = "{data.as_posix()}"\n', encoding="utf-8")
 
     runner = CliRunner()
     runner.invoke(

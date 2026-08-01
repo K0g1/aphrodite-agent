@@ -462,7 +462,7 @@ def test_load_config_rejects_unknown_timezone(tmp_path):
 
     config_file = tmp_path / "aphrodite.toml"
     config_file.write_text(
-        f'[general]\ntimezone = "Mars/Olympus_Mons"\ndata_directory = "{tmp_path / "data"}"\n',
+        f'[general]\ntimezone = "Mars/Olympus_Mons"\ndata_directory = "{ (tmp_path / "data").as_posix() }"\n',
         encoding="utf-8",
     )
 
