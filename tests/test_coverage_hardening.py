@@ -376,7 +376,9 @@ async def test_extraction_llm_error_falls_back(tmp_path):
 def _write_cli_config(tmp_path, extra=""):
     cfg = tmp_path / "aphrodite.toml"
     cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(f'[general]\ndata_directory = "{ (tmp_path / "data").as_posix() }"\n{extra}', encoding="utf-8")
+    cfg.write_text(
+        f'[general]\ndata_directory = "{(tmp_path / "data").as_posix()}"\n{extra}', encoding="utf-8"
+    )
     return str(cfg)
 
 

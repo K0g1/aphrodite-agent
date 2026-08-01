@@ -1,7 +1,6 @@
 """Integration tests for Aphrodite Agent."""
 
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 
@@ -54,10 +53,10 @@ class TestMemoryExtractor:
 
 class TestJournalManager:
     @pytest.mark.asyncio
-    async def test_is_due(self):
+    async def test_is_due(self, tmp_path):
         from aphrodite.db import Database
 
-        db = Database(Path("/tmp/test_aphrodite_journal.db"))
+        db = Database(tmp_path / "journal.db")
         await db.initialize()
 
         config = Config()
@@ -73,9 +72,6 @@ class TestJournalManager:
         assert await journal.is_due(late, timezone_str="America/Vancouver")
 
         await db.close()
-        import os
-
-        os.remove("/tmp/test_aphrodite_journal.db")
 
     def test_summarize(self):
         journal = JournalManager.__new__(JournalManager)
