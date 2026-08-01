@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 import math
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 from ..config import Config
 from ..db.database import Database
@@ -27,18 +27,18 @@ def _coerce_utc_datetime(value: datetime | str) -> datetime:
     if isinstance(value, datetime):
         parsed = value
     elif isinstance(value, str):
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     else:
         raise TypeError("Expected datetime or ISO-8601 string")
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _validate_advance_hours(hours: object) -> int | float:
     """Validate hours at the engine boundary as defense in depth."""
     if isinstance(hours, bool) or not isinstance(hours, (int, float)):
-        raise ValueError("hours must be a positive finite number")
+        raise TypeError("hours must be a positive finite number")
     if isinstance(hours, float) and not math.isfinite(hours):
         raise ValueError("hours must be a positive finite number")
     if hours <= 0:
@@ -215,7 +215,7 @@ class WorldEngine:
         hours = _validate_advance_hours(hours)
 
         async with self._advance_lock:
-            wall_now = _coerce_utc_datetime(now_utc or datetime.now(timezone.utc))
+            wall_now = _coerce_utc_datetime(now_utc or datetime.now(UTC))
             state = await self.get_state()
 
             # Determine the current simulation time from the stored clock

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -29,7 +29,6 @@ from aphrodite.db.database import Database
 from aphrodite.mood import MoodManager
 from aphrodite.types import MoodState
 from aphrodite.world import WorldEngine
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -469,7 +468,7 @@ class TestWORLD002_DST:
         """March 9 2025 02:00 PST → 03:00 PDT (spring forward)."""
         engine = self._make_engine()
         # 2:00 AM PST = UTC-8 → UTC 10:00
-        utc_time = datetime(2025, 3, 9, 10, 0, tzinfo=timezone.utc)
+        utc_time = datetime(2025, 3, 9, 10, 0, tzinfo=UTC)
         local = engine._to_local_time(utc_time)
         assert local.tzinfo is not None
         # After spring forward, Vancouver is PDT (UTC-7)
@@ -480,7 +479,7 @@ class TestWORLD002_DST:
         """November 2 2025 02:00 PDT → 01:00 PST (fall back)."""
         engine = self._make_engine()
         # 2:00 AM PDT = UTC-7 → UTC 09:00
-        utc_time = datetime(2025, 11, 2, 9, 0, tzinfo=timezone.utc)
+        utc_time = datetime(2025, 11, 2, 9, 0, tzinfo=UTC)
         local = engine._to_local_time(utc_time)
         # After fall back, Vancouver is PST (UTC-8)
         assert local.hour == 1  # 09 UTC → 1 AM PST
@@ -490,7 +489,7 @@ class TestWORLD002_DST:
         """The hour from 23:00 to 00:00 on DST transition day."""
         engine = self._make_engine()
         # March 9, 2025 at midnight PDT = UTC 08:00
-        utc_time = datetime(2025, 3, 9, 8, 0, tzinfo=timezone.utc)
+        utc_time = datetime(2025, 3, 9, 8, 0, tzinfo=UTC)
         local = engine._to_local_time(utc_time)
         assert local.hour == 0  # midnight PDT
         assert local.day == 9
@@ -499,7 +498,7 @@ class TestWORLD002_DST:
         """Activity mapping should handle DST hours correctly."""
         engine = self._make_engine()
         # March 10, 2025 14:30 PDT = UTC 21:30
-        utc_time = datetime(2025, 3, 10, 21, 30, tzinfo=timezone.utc)
+        utc_time = datetime(2025, 3, 10, 21, 30, tzinfo=UTC)
         local = engine._to_local_time(utc_time)
         # 14:30 PDT → "working in the afternoon" (13 <= 14 < 17)
         activity = engine._get_scheduled_activity(local)
@@ -509,7 +508,7 @@ class TestWORLD002_DST:
         """7:00 PDT should map to 'waking up slowly'."""
         engine = self._make_engine()
         # March 10, 2025 07:30 PDT = UTC 14:30
-        utc_time = datetime(2025, 3, 10, 14, 30, tzinfo=timezone.utc)
+        utc_time = datetime(2025, 3, 10, 14, 30, tzinfo=UTC)
         local = engine._to_local_time(utc_time)
         assert local.hour == 7
         activity = engine._get_scheduled_activity(local)
@@ -519,7 +518,7 @@ class TestWORLD002_DST:
         """zoneinfo should handle DST; fallback is UTC-7."""
         engine = self._make_engine()
         # Just verify normal times work
-        utc_time = datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)
+        utc_time = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
         local = engine._to_local_time(utc_time)
         # Jan = PST = UTC-8
         assert local.hour == 4
@@ -530,7 +529,7 @@ class TestWORLD002_DST:
         from aphrodite.types import WorldWeather
 
         # March 12, 2025 15:00 PDT = UTC 22:00
-        utc_time = datetime(2025, 3, 12, 22, 0, tzinfo=timezone.utc)
+        utc_time = datetime(2025, 3, 12, 22, 0, tzinfo=UTC)
         weather = engine._generate_weather(utc_time, WorldWeather())
         # March base temp is 7°C, afternoon (+4) = 11
         assert 5 <= weather.temperature_c <= 13
@@ -541,7 +540,7 @@ class TestWORLD002_DST:
         from aphrodite.types import WorldWeather
 
         for hour_utc in range(24):
-            utc_time = datetime(2025, 3, 9, hour_utc, 0, tzinfo=timezone.utc)
+            utc_time = datetime(2025, 3, 9, hour_utc, 0, tzinfo=UTC)
             # Should not raise
             weather = engine._generate_weather(utc_time, WorldWeather())
             assert isinstance(weather.temperature_c, (int, float))
@@ -561,10 +560,10 @@ class TestWORLD002_DST:
         """During fall-back, hour 1 occurs twice. Verify both produce valid local times."""
         engine = self._make_engine()
         # First occurrence of 1:00 AM: UTC 09:00 (still PDT)
-        utc1 = datetime(2025, 11, 2, 9, 0, tzinfo=timezone.utc)
+        utc1 = datetime(2025, 11, 2, 9, 0, tzinfo=UTC)
         local1 = engine._to_local_time(utc1)
         # Second occurrence: UTC 10:00 (now PST)
-        utc2 = datetime(2025, 11, 2, 10, 0, tzinfo=timezone.utc)
+        utc2 = datetime(2025, 11, 2, 10, 0, tzinfo=UTC)
         local2 = engine._to_local_time(utc2)
         assert local1.hour == 1
         assert local2.hour == 2
@@ -576,7 +575,7 @@ class TestWORLD002_DST:
         engine = self._make_engine()
         from aphrodite.types import WorldWeather
 
-        utc_time = datetime(2025, 6, 15, 12, 0, tzinfo=timezone.utc)
+        utc_time = datetime(2025, 6, 15, 12, 0, tzinfo=UTC)
         w1 = engine._generate_weather(utc_time, WorldWeather())
         w2 = engine._generate_weather(utc_time, WorldWeather())
         assert w1.condition == w2.condition
@@ -611,7 +610,7 @@ class TestWORLD002_DST:
             22: "bed",
         }
         for hour, keyword in expected_keywords.items():
-            dt = datetime(2026, 1, 1, hour, 30, tzinfo=timezone.utc)
+            dt = datetime(2026, 1, 1, hour, 30, tzinfo=UTC)
             local = dt  # Use UTC directly since _get_scheduled_activity just uses .hour
             activity = engine._get_scheduled_activity(local)
             assert keyword.lower() in activity.lower(), (

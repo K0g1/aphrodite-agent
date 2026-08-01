@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from datetime import UTC
 from pathlib import Path
 
 import aiosqlite
 
 from .schema import get_schema_sql, get_seed_sql
-
 
 WORLD_STATE_COLUMNS = frozenset(
     {
@@ -61,7 +61,7 @@ class Database:
             row = await self.fetch_one(
                 "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
             )
-        except Exception:
+        except sqlite3.Error:
             return
         if row is None:
             return
@@ -247,9 +247,9 @@ class Database:
         impact: str = "{}",
         created_at: str | None = None,
     ) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = created_at or datetime.now(timezone.utc).isoformat()
+        now = created_at or datetime.now(UTC).isoformat()
         await self.execute(
             "INSERT OR REPLACE INTO events (id, event_type, layer, provenance, status, title, summary, starts_at_utc, local_date, location_id, payload_json, impact_json, created_at_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (

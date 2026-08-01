@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from aphrodite.config import Config
 from aphrodite.db.database import Database
-
 
 # ---------------------------------------------------------------------------
 # Logging module
@@ -119,7 +118,7 @@ async def test_proactive_quiet_hours_suppress(tmp_path):
             char,
             WorldState(),
             MoodState(),
-            now_utc=datetime(2026, 7, 31, 23, 30, tzinfo=timezone.utc),
+            now_utc=datetime(2026, 7, 31, 23, 30, tzinfo=UTC),
         )
         assert msg is None
     finally:
@@ -144,7 +143,7 @@ async def test_proactive_respects_min_gap_and_max_per_day(tmp_path):
     try:
         mgr = ProactiveManager(db, config)
         char = Character(id="mira", identity=CharacterIdentity(name="Mira"))
-        base = datetime(2026, 7, 31, 9, 0, tzinfo=timezone.utc)
+        base = datetime(2026, 7, 31, 9, 0, tzinfo=UTC)
 
         first = await mgr.think_about_messaging(char, WorldState(), MoodState(), now_utc=base)
         assert first is not None
@@ -190,7 +189,7 @@ async def test_proactive_goodnight_and_share_from_life(tmp_path):
             char,
             WorldState(),
             MoodState(),
-            now_utc=datetime(2026, 7, 31, 21, 30, tzinfo=timezone.utc),
+            now_utc=datetime(2026, 7, 31, 21, 30, tzinfo=UTC),
         )
         assert msg is not None and msg.message_type == "goodnight"
         # Next day mid-morning with high valence -> share_from_life
@@ -198,7 +197,7 @@ async def test_proactive_goodnight_and_share_from_life(tmp_path):
             char,
             WorldState(activity="gardening"),
             MoodState(valence=0.8, arousal=0.6),
-            now_utc=datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc),
+            now_utc=datetime(2026, 8, 1, 10, 0, tzinfo=UTC),
         )
         assert msg2 is not None and msg2.message_type == "share_from_life"
         assert "gardening" in msg2.content
@@ -217,7 +216,7 @@ def test_proactive_quiet_hours_wrap():
     mgr = ProactiveManager.__new__(ProactiveManager)
     mgr.config = config
 
-    base = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    base = datetime(2026, 7, 31, tzinfo=UTC)
     assert mgr._is_in_waking_hours(base.replace(hour=9)) is True
     assert mgr._is_in_waking_hours(base.replace(hour=23)) is False
     assert mgr._is_in_waking_hours(base.replace(hour=7, minute=59)) is False

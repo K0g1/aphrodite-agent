@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ..types import MoodState
 from ..config import MoodConfig
+from ..types import MoodState
 
 
 class MoodManager:

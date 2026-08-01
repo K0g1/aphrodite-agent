@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 
 from aphrodite.character import parse_character
@@ -55,9 +57,11 @@ def test_archive_extraction_rejects_parent_traversal(tmp_path):
         info.size = len(payload)
         tar.addfile(info, io.BytesIO(payload))
 
-    with tarfile.open(archive, "r:gz") as tar:
-        with pytest.raises(ValueError, match="unsafe archive member"):
-            _safe_extract_tar(tar, tmp_path / "extract")
+    with (
+        tarfile.open(archive, "r:gz") as tar,
+        pytest.raises(ValueError, match="unsafe archive member"),
+    ):
+        _safe_extract_tar(tar, tmp_path / "extract")
 
     assert not (tmp_path / "escaped.txt").exists()
 
@@ -147,7 +151,7 @@ async def test_memory_source_message_id_round_trips_through_sqlite(tmp_path):
 
 @pytest.mark.asyncio
 async def test_journal_json_fields_round_trip(tmp_path):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from aphrodite.character import Character, CharacterIdentity
     from aphrodite.db import Database
@@ -165,7 +169,7 @@ async def test_journal_json_fields_round_trip(tmp_path):
             mood,
             world_events=[{"id": "event-1", "title": "Made tea"}],
             local_date="2026-07-29",
-            now_utc=datetime(2026, 7, 30, tzinfo=timezone.utc),
+            now_utc=datetime(2026, 7, 30, tzinfo=UTC),
         )
         loaded = await journal.get_entry("2026-07-29")
     finally:
@@ -196,7 +200,7 @@ async def test_database_schema_contains_proactive_events_table(tmp_path):
 
 @pytest.mark.asyncio
 async def test_first_world_update_initializes_persisted_clock(tmp_path):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from aphrodite.db import Database
     from aphrodite.world import WorldEngine
@@ -206,7 +210,7 @@ async def test_first_world_update_initializes_persisted_clock(tmp_path):
     await database.initialize()
     try:
         engine = WorldEngine(database, config)
-        now = datetime(2026, 7, 29, 18, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 7, 29, 18, 0, tzinfo=UTC)
         await engine.update_state(now)
         stored = await database.get_world_state()
     finally:
@@ -216,7 +220,7 @@ async def test_first_world_update_initializes_persisted_clock(tmp_path):
 
 
 def test_proactive_quiet_hours_use_configured_timezone_and_wrap_midnight():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from aphrodite.proactive import ProactiveManager
 
@@ -224,16 +228,16 @@ def test_proactive_quiet_hours_use_configured_timezone_and_wrap_midnight():
     manager = ProactiveManager.__new__(ProactiveManager)
     manager.config = config
 
-    quiet_local_23 = datetime(2026, 7, 30, 6, 0, tzinfo=timezone.utc)
-    awake_local_12 = datetime(2026, 7, 30, 19, 0, tzinfo=timezone.utc)
+    quiet_local_23 = datetime(2026, 7, 30, 6, 0, tzinfo=UTC)
+    awake_local_12 = datetime(2026, 7, 30, 19, 0, tzinfo=UTC)
 
     assert not manager._is_in_waking_hours(quiet_local_23)
     assert manager._is_in_waking_hours(awake_local_12)
 
 
 def test_proactive_template_selection_is_stable_for_supplied_time():
-    from datetime import datetime, timezone
     import hashlib
+    from datetime import datetime
 
     from aphrodite.character import Character, CharacterIdentity
     from aphrodite.proactive import PROACTIVE_PROMPTS, ProactiveManager
@@ -241,7 +245,7 @@ def test_proactive_template_selection_is_stable_for_supplied_time():
 
     manager = ProactiveManager.__new__(ProactiveManager)
     character = Character(identity=CharacterIdentity(name="Mira"))
-    now = datetime(2026, 7, 30, 19, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 7, 30, 19, 0, tzinfo=UTC)
     templates = PROACTIVE_PROMPTS["check_in"]
     seed = f"Mira|check_in|{now.isoformat()}"
     expected = templates[int(hashlib.sha256(seed.encode()).hexdigest(), 16) % len(templates)]
@@ -285,7 +289,7 @@ async def test_provider_preserves_explicit_zero_temperature():
 
 
 def test_prompt_assembly_rebuilds_sections_until_request_fits_usable_budget():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from aphrodite.character import Character, CharacterIdentity
     from aphrodite.context import assemble_prompt
@@ -300,7 +304,7 @@ def test_prompt_assembly_rebuilds_sections_until_request_fits_usable_budget():
         long_term_memories=memories,
         recent_turns=[],
         current_user_message="latest request",
-        now=datetime(2026, 7, 30, tzinfo=timezone.utc),
+        now=datetime(2026, 7, 30, tzinfo=UTC),
         max_input_tokens=1400,
         response_reserve=300,
     )
@@ -388,14 +392,14 @@ async def test_live_simulation_mode_constructs_the_configured_provider_without_c
 
 
 def test_world_local_time_uses_configured_timezone():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from aphrodite.world import WorldEngine
 
     engine = WorldEngine.__new__(WorldEngine)
     engine.config = Config(timezone="Asia/Tokyo")
 
-    local = engine._to_local_time(datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc))
+    local = engine._to_local_time(datetime(2026, 7, 30, 12, 0, tzinfo=UTC))
 
     assert local.hour == 21
     assert str(local.tzinfo) == "Asia/Tokyo"
@@ -436,7 +440,7 @@ async def test_world_state_update_rejects_unknown_sql_columns(tmp_path):
 
 @pytest.mark.asyncio
 async def test_journal_due_time_uses_configured_timezone(tmp_path):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from aphrodite.db import Database
     from aphrodite.journal import JournalManager
@@ -446,7 +450,7 @@ async def test_journal_due_time_uses_configured_timezone(tmp_path):
     await database.initialize()
     try:
         journal = JournalManager(database, config)
-        due = await journal.is_due(datetime(2026, 7, 30, 12, 30, tzinfo=timezone.utc))
+        due = await journal.is_due(datetime(2026, 7, 30, 12, 30, tzinfo=UTC))
     finally:
         await database.close()
 

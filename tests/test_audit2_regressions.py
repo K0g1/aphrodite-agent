@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import tarfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -64,7 +64,7 @@ async def test_event_local_date_uses_configured_timezone(tmp_path):
     await db.initialize()
     engine = WorldEngine(db, config)
     # 2026-07-31 23:30 UTC is 2026-08-01 11:30 in Auckland.
-    await engine.update_state(datetime(2026, 7, 31, 23, 30, tzinfo=timezone.utc))
+    await engine.update_state(datetime(2026, 7, 31, 23, 30, tzinfo=UTC))
     row = await db.fetch_one("SELECT local_date FROM events ORDER BY created_at_utc LIMIT 1")
     await db.close()
 
@@ -216,7 +216,7 @@ async def test_update_world_state_is_single_atomic_statement(tmp_path):
     db = Database(config.db_path)
     await db.initialize()
     engine = WorldEngine(db, config)
-    await engine.update_state(datetime(2026, 7, 31, 10, 0, tzinfo=timezone.utc))
+    await engine.update_state(datetime(2026, 7, 31, 10, 0, tzinfo=UTC))
 
     before = await db.fetch_one("SELECT revision FROM world_state WHERE id = 1")
     await db.update_world_state(
@@ -381,7 +381,7 @@ async def test_long_gap_test_is_isolated_from_caller_database(tmp_path):
 @pytest.mark.asyncio
 async def test_world_catchup_is_capped_by_config(tmp_path):
     """MEDIUM: a long offline gap must not decay mood by the full elapsed time."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from aphrodite.types import MoodState
     from aphrodite.world import WorldEngine
@@ -393,9 +393,9 @@ async def test_world_catchup_is_capped_by_config(tmp_path):
     await db.initialize()
     engine = WorldEngine(db, config)
     # Bootstrap the clock, then advance by 30 days in one update.
-    await engine.update_state(datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc))
+    await engine.update_state(datetime(2026, 7, 1, 0, 0, tzinfo=UTC))
     await db.update_world_state(mood_json=json.dumps(MoodState(valence=1.0, arousal=1.0).to_dict()))
-    await engine.update_state(datetime(2026, 7, 31, 0, 0, tzinfo=timezone.utc))
+    await engine.update_state(datetime(2026, 7, 31, 0, 0, tzinfo=UTC))
     row = await db.fetch_one("SELECT mood_json FROM world_state WHERE id = 1")
     await db.close()
 
@@ -624,7 +624,7 @@ async def test_journal_entry_uses_local_date_not_utc(tmp_path):
     char = Character(id="mira", identity=CharacterIdentity(name="Mira"))
     # 2026-07-31 23:30 UTC == 2026-08-01 11:30 NZST
     entry = await manager.write_entry(
-        char, MoodState(), now_utc=datetime(2026, 7, 31, 23, 30, tzinfo=timezone.utc)
+        char, MoodState(), now_utc=datetime(2026, 7, 31, 23, 30, tzinfo=UTC)
     )
     await db.close()
 
@@ -713,9 +713,9 @@ async def test_api_proactive_endpoint(tmp_path, monkeypatch):
     """The proactive subsystem is wired: /v1/proactive returns a message when due."""
     import datetime as _datetime
 
-    import aphrodite.proactive as proactive_mod
     from aiohttp.test_utils import TestClient, TestServer
 
+    import aphrodite.proactive as proactive_mod
     from aphrodite.api.server import APIHandler, create_api_application
 
     # Pin "now" to a waking hour so the test is not time-of-day dependent.
@@ -724,7 +724,7 @@ async def test_api_proactive_endpoint(tmp_path, monkeypatch):
     class _FakeDatetime:
         @staticmethod
         def now(tz=None):
-            return _datetime.datetime(2026, 8, 1, 10, 0, tzinfo=_datetime.timezone.utc)
+            return _datetime.datetime(2026, 8, 1, 10, 0, tzinfo=_datetime.UTC)
 
     monkeypatch.setattr(proactive_mod, "datetime", _FakeDatetime)
 
@@ -895,9 +895,11 @@ def test_archive_member_count_cap(tmp_path):
 
     members = [(f"m{i}.md", b"x" * 10) for i in range(300)]
     buf = _tar_bytes(members)
-    with tarfile.open(fileobj=io.BytesIO(buf), mode="r:gz") as tar:
-        with pytest.raises(ValueError, match="too many members"):
-            _safe_extract_tar(tar, tmp_path)
+    with (
+        tarfile.open(fileobj=io.BytesIO(buf), mode="r:gz") as tar,
+        pytest.raises(ValueError, match="too many members"),
+    ):
+        _safe_extract_tar(tar, tmp_path)
 
 
 def test_archive_member_size_cap(tmp_path):
@@ -907,9 +909,11 @@ def test_archive_member_size_cap(tmp_path):
     from aphrodite.export import _safe_extract_tar
 
     buf = _tar_bytes([("big.bin", b"y" * (11 * 1024 * 1024))])
-    with tarfile.open(fileobj=io.BytesIO(buf), mode="r:gz") as tar:
-        with pytest.raises(ValueError, match="member size"):
-            _safe_extract_tar(tar, tmp_path)
+    with (
+        tarfile.open(fileobj=io.BytesIO(buf), mode="r:gz") as tar,
+        pytest.raises(ValueError, match="member size"),
+    ):
+        _safe_extract_tar(tar, tmp_path)
 
 
 def test_archive_total_size_cap(tmp_path):
@@ -920,9 +924,11 @@ def test_archive_total_size_cap(tmp_path):
 
     members = [(f"f{i}.bin", b"z" * (6 * 1024 * 1024)) for i in range(12)]
     buf = _tar_bytes(members)
-    with tarfile.open(fileobj=io.BytesIO(buf), mode="r:gz") as tar:
-        with pytest.raises(ValueError, match="size limit"):
-            _safe_extract_tar(tar, tmp_path)
+    with (
+        tarfile.open(fileobj=io.BytesIO(buf), mode="r:gz") as tar,
+        pytest.raises(ValueError, match="size limit"),
+    ):
+        _safe_extract_tar(tar, tmp_path)
 
 
 @pytest.mark.asyncio
@@ -1029,9 +1035,9 @@ async def test_remote_bind_with_explicit_token_starts(tmp_path, monkeypatch):
     config = Config(data_directory=str(tmp_path / "data"))
     config.api.allow_remote = True
     config.characters_dir.mkdir(parents=True, exist_ok=True)
-    from aphrodite.api.server import run_api_server
-
     import asyncio
+
+    from aphrodite.api.server import run_api_server
 
     task = asyncio.create_task(run_api_server(config, host="0.0.0.0", port=0))
     await asyncio.sleep(0.5)

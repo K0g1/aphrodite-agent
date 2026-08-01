@@ -9,12 +9,12 @@ import secrets
 import shutil
 import tarfile
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 from ..character import validate_character_id
-from ..db.database import Database
 from ..config import Config
+from ..db.database import Database
 
 logger = logging.getLogger("aphrodite.export")
 
@@ -123,7 +123,7 @@ class ExportManager:
                 "format": "aphrodite-character",
                 "version": "1.0",
                 "character_id": character_id,
-                "exported_at": datetime.now(timezone.utc).isoformat(),
+                "exported_at": datetime.now(UTC).isoformat(),
                 "files": [str(f.relative_to(char_dir)) for f in char_files],
                 "includes_memories": memories_written,
                 "license": "CC-BY-4.0",
@@ -232,7 +232,7 @@ class ExportManager:
 
     async def _import_memories(self, mem_file: Path) -> None:
         """Import memories from an exported memories.json (best-effort per row)."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from ..types import new_id
 
@@ -265,7 +265,7 @@ class ExportManager:
                 confidence=min(1.0, max(0.0, confidence)),
                 importance=min(1.0, max(0.0, importance)),
                 sensitivity=str(row.get("sensitivity", "normal")),
-                created_at=str(row.get("created_at_utc") or datetime.now(timezone.utc).isoformat()),
+                created_at=str(row.get("created_at_utc") or datetime.now(UTC).isoformat()),
                 source_message_id=str(row.get("source_message_id") or ""),
             )
 
@@ -281,11 +281,11 @@ class ExportManager:
         else:
             out = (
                 self.config.data_path
-                / f"memories_export_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
+                / f"memories_export_{datetime.now(UTC).strftime('%Y%m%d')}.json"
             )
 
         data = {
-            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "exported_at": datetime.now(UTC).isoformat(),
             "count": len(memories),
             "memories": [dict(r) for r in memories],
         }
@@ -310,11 +310,11 @@ class ExportManager:
         else:
             out = (
                 self.config.data_path
-                / f"journal_export_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
+                / f"journal_export_{datetime.now(UTC).strftime('%Y%m%d')}.json"
             )
 
         data = {
-            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "exported_at": datetime.now(UTC).isoformat(),
             "count": len(entries),
             "entries": [dict(r) for r in entries],
         }

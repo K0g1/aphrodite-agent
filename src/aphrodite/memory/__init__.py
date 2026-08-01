@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
+from ..config import Config
 from ..db.database import Database
 from ..types import Memory, MemoryType, Sensitivity, new_id
-from ..config import Config
 
 
 class MemoryManager:
@@ -24,9 +26,9 @@ class MemoryManager:
         source_message_id: str = "",
     ) -> Memory:
         """Add a new memory."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         memory_id = new_id()
 
         await self.db.save_memory(
@@ -66,9 +68,9 @@ class MemoryManager:
 
     async def correct_memory(self, memory_id: str, new_content: str) -> None:
         """Correct a memory (mark old as superseded, create new)."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         # Get old memory
         old = await self.db.fetch_one("SELECT * FROM memories WHERE id = ?", (memory_id,))
@@ -97,9 +99,9 @@ class MemoryManager:
 
     async def forget_memory(self, memory_id: str) -> None:
         """Delete a memory."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self.db.execute(
             "UPDATE memories SET status = 'deleted', updated_at_utc = ? WHERE id = ?",
             (now, memory_id),

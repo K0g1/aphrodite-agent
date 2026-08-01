@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import click
+from datetime import UTC
 from pathlib import Path
 
-from aphrodite.config import load_config, Config
+import click
+
+from aphrodite.api.server import run_api_server
 from aphrodite.app import AphroditeApp
+from aphrodite.character import validate_character_id
+from aphrodite.config import Config, load_config
+from aphrodite.db import Database
+from aphrodite.export import ExportManager
 from aphrodite.providers import ProviderError
 from aphrodite.simulation import SimulationEngine
-from aphrodite.api.server import run_api_server
-from aphrodite.export import ExportManager
-from aphrodite.db import Database
-from aphrodite.character import validate_character_id
 
 
 @click.group()
@@ -245,11 +247,11 @@ def advance(ctx, hours, character):
     char = character or (ctx.obj.get("character") if ctx.obj else None)
 
     async def _advance():
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         app = AphroditeApp(config)
         await app.initialize(char)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         events = await app.world.advance_time(hours, now)
         state = await app.world.get_state()
         await app.close()

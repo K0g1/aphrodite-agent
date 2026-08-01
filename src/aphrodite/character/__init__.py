@@ -9,7 +9,6 @@ from typing import Any
 
 import yaml
 
-
 _CHARACTER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _WINDOWS_RESERVED_NAMES = {
     "CON",
@@ -288,6 +287,6 @@ def _bullet_list(text: str) -> list[str]:
     items = []
     for line in text.strip().split("\n"):
         line = line.strip()
-        if line.startswith("- ") or line.startswith("* "):
+        if line.startswith(("- ", "* ")):
             items.append(line[2:].strip())
     return items

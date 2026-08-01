@@ -51,7 +51,7 @@ class Provider:
             data = resp.json()
             # A 200 with an error body (bad key/auth) is not healthy.
             return isinstance(data, dict) and isinstance(data.get("data"), list)
-        except Exception:
+        except Exception:  # noqa: BLE001 - provider boundary: any failure = unhealthy
             return False
 
     async def complete(
@@ -123,7 +123,7 @@ class Provider:
                 raise ProviderError("Provider request failed: network error")
             except ProviderError:
                 raise
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - boundary: convert to ProviderError
                 raise ProviderError(f"Provider request failed: {e}")
 
     async def _stream_completion(self, client: httpx.AsyncClient, payload: dict) -> str:

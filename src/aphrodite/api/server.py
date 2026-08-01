@@ -13,8 +13,8 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from ..config import Config
 from ..app import AphroditeApp
+from ..config import Config
 from ..journal import JournalManager
 from ..providers import ProviderError
 from ..simulation import SimulationEngine
@@ -126,7 +126,7 @@ class APIHandler:
             try:
                 async with asyncio.timeout(2.0):
                     provider_healthy = await self.app.provider.health_check()
-            except Exception:
+            except Exception:  # noqa: BLE001 - provider boundary: any failure = unhealthy
                 provider_healthy = False
         return {
             "status": "healthy",
@@ -337,7 +337,7 @@ def create_api_application(api_handler: APIHandler):
             body = await request.json() if request.can_read_body else {}
         except json.JSONDecodeError:
             return web.json_response({"error": "Invalid JSON in request body"}, status=400)
-        except Exception:
+        except Exception:  # noqa: BLE001 - body parsing boundary: any parse failure -> 400
             return web.json_response({"error": "Could not parse request body"}, status=400)
 
         try:

@@ -1,24 +1,24 @@
 """Integration tests for Aphrodite Agent."""
 
-import pytest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from aphrodite.config import Config
-from aphrodite.types import MoodState, WorldState, Memory, MemoryType
+import pytest
+
 from aphrodite.character import (
     Character,
-    PersonalitySliders,
     CharacterIdentity,
-    SpeechStyle,
     EmotionalModel,
+    PersonalitySliders,
+    SpeechStyle,
 )
+from aphrodite.config import Config, MoodConfig
 from aphrodite.context import PersonalityRenderer, assemble_prompt
-from aphrodite.mood import MoodManager
-from aphrodite.config import MoodConfig
 from aphrodite.extraction import MemoryExtractor
 from aphrodite.journal import JournalManager
+from aphrodite.mood import MoodManager
 from aphrodite.simulation import MockProvider, SimulatedClock
+from aphrodite.types import Memory, MemoryType, MoodState, WorldState
 
 
 class TestMemoryExtractor:
@@ -65,11 +65,11 @@ class TestJournalManager:
         journal = JournalManager(db, config)
 
         # At 3 AM UTC (8 PM Pacific, before journal time), should not be due
-        early = datetime(2026, 7, 22, 3, 0, tzinfo=timezone.utc)
+        early = datetime(2026, 7, 22, 3, 0, tzinfo=UTC)
         assert not await journal.is_due(early)
 
         # At 5 AM UTC (10 PM Pacific, after 21:30 journal time), should be due
-        late = datetime(2026, 7, 23, 5, 0, tzinfo=timezone.utc)  # 10 PM Pacific on July 22
+        late = datetime(2026, 7, 23, 5, 0, tzinfo=UTC)  # 10 PM Pacific on July 22
         assert await journal.is_due(late, timezone_str="America/Vancouver")
 
         await db.close()
@@ -89,7 +89,7 @@ class TestSimulation:
     @pytest.mark.asyncio
     async def test_simulated_clock(self):
         clock = SimulatedClock(
-            start_utc=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            start_utc=datetime(2026, 7, 1, tzinfo=UTC),
             speed=100,
         )
         now = clock.now_utc()
@@ -123,7 +123,7 @@ class TestSimulation:
         provider._failure_rate = 1.0
         import asyncio
 
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             asyncio.run(provider.complete([{"role": "user", "content": "Hello"}]))
 
 
@@ -218,7 +218,7 @@ class TestPromptAssembly:
             ),
             emotion=EmotionalModel(baseline="calm"),
         )
-        now = datetime(2026, 7, 22, 14, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 7, 22, 14, 0, tzinfo=UTC)
 
         result = assemble_prompt(
             character=character,
@@ -253,7 +253,7 @@ class TestPromptAssembly:
             long_term_memories=[],
             recent_turns=[],
             current_user_message="Hello",
-            now=datetime(2026, 7, 22, tzinfo=timezone.utc),
+            now=datetime(2026, 7, 22, tzinfo=UTC),
         )
         assert result.total_input_tokens > 0
         assert result.system_prompt
@@ -271,7 +271,7 @@ class TestPromptAssembly:
             long_term_memories=[],
             recent_turns=[],
             current_user_message="Hello",
-            now=datetime(2026, 7, 22, tzinfo=timezone.utc),
+            now=datetime(2026, 7, 22, tzinfo=UTC),
             max_input_tokens=4096,
         )
         assert result.total_input_tokens <= 4096

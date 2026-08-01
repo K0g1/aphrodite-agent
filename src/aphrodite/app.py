@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .config import Config
-from .db.database import Database
 from .character import Character, parse_character, validate_character_id
-from .providers import Provider, ProviderError
-from .memory import MemoryManager
-from .world import WorldEngine
-from .mood import MoodManager
+from .config import Config
 from .context import assemble_prompt
+from .db.database import Database
 from .extraction import MemoryExtractor
+from .memory import MemoryManager
+from .mood import MoodManager
+from .providers import Provider, ProviderError
 from .types import ConversationTurn, MessageRole, new_id
+from .world import WorldEngine
 
 logger = logging.getLogger("aphrodite.app")
 
@@ -70,7 +70,7 @@ class AphroditeApp:
         world = self.world
         memory = self.memory
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conversation_id = "default"
 
         # 1. Update world state
@@ -242,7 +242,7 @@ Warm and balanced personality with a natural conversational style.
 
     def _default_character(self, name: str) -> Character:
         """Create a default character."""
-        from .character import CharacterIdentity, PersonalitySliders, SpeechStyle, EmotionalModel
+        from .character import CharacterIdentity, EmotionalModel, PersonalitySliders, SpeechStyle
 
         return Character(
             id=name,

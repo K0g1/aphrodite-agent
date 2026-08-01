@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from ..types import Memory, MemoryType, Sensitivity
 from ..character import Character
+from ..types import Memory, MemoryType, Sensitivity
 
 MEMORY_EXTRACTION_PROMPT = """Analyze this conversation exchange and extract atomic facts to remember about the user.
 

@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
 import hashlib
 import json
 import math
 import random
 import tempfile
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from ..config import Config
 from ..db.database import Database
-from ..types import MoodState, new_id
-from ..world import WorldEngine
 from ..journal import JournalManager
 from ..providers import Provider
-
+from ..types import MoodState, new_id
+from ..world import WorldEngine
 
 MOCK_RESPONSES = [
     "I see what you mean.",
@@ -64,7 +63,7 @@ class SimulatedClock:
     """Deterministic clock that can be accelerated."""
 
     def __init__(self, start_utc: datetime | None = None, speed: float = 1.0):
-        self._start = start_utc or datetime(2026, 7, 1, tzinfo=timezone.utc)
+        self._start = start_utc or datetime(2026, 7, 1, tzinfo=UTC)
         self._elapsed = timedelta(0)
         self._speed = 1.0
         self.speed = speed  # route through the validated setter
@@ -110,11 +109,11 @@ class MockProvider:
 
         if self._fail_next:
             self._fail_next = False
-            raise Exception("Simulated provider failure")
+            raise RuntimeError("Simulated provider failure")
 
         # This is intentional simulation randomness, not security-sensitive entropy.
         if random.random() < self._failure_rate:  # nosec B311
-            raise Exception("Simulated random provider failure")
+            raise RuntimeError("Simulated random provider failure")
 
         # Deterministic response selection
         msg = messages[-1]["content"] if messages else ""
@@ -137,7 +136,7 @@ class SimulationScript:
     steps: list[dict] = field(default_factory=list)
 
     @classmethod
-    def from_jsonl(cls, path: str) -> "SimulationScript":
+    def from_jsonl(cls, path: str) -> SimulationScript:
         steps = []
         with open(path) as f:
             for line_no, line in enumerate(f, start=1):
@@ -188,9 +187,9 @@ class SimulationEngine:
             raise ValueError("speed must be positive")
         # NaN/inf pass the comparisons above; reject them explicitly.
         if isinstance(hours, bool) or not isinstance(hours, (int, float)):
-            raise ValueError("hours must be a finite number")
+            raise TypeError("hours must be a finite number")
         if isinstance(speed, bool) or not isinstance(speed, (int, float)):
-            raise ValueError("speed must be a finite number")
+            raise TypeError("speed must be a finite number")
         if not math.isfinite(hours) or not math.isfinite(speed):
             raise ValueError("hours and speed must be finite")
         self.clock = SimulatedClock(speed=speed)
@@ -204,7 +203,7 @@ class SimulationEngine:
         self._warnings = 0
         self._consistency_checks = 0
         self._consistency_failures = 0
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         # Isolate the run on a scratch database (default) so the caller's DB is
         # never polluted with simulated state.
@@ -226,7 +225,7 @@ class SimulationEngine:
             else:
                 await self._run_free(hours, character, mock_provider)
 
-            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+            elapsed = (datetime.now(UTC) - start_time).total_seconds()
             self.report.real_time_seconds = elapsed
 
             self.report.errors = self._errors
@@ -265,7 +264,7 @@ class SimulationEngine:
         actually accelerates the run instead of being a no-op.
         """
         total_minutes = int(hours * 60)
-        step_minutes = max(15, int(round(15 * self.clock.speed)))
+        step_minutes = max(15, round(15 * self.clock.speed))
         # Seeded RNG for reproducible simulations (not security-sensitive).
         self._rng = random.Random(f"{self.clock.speed}|{hours}|free")  # nosec B311
 
@@ -315,7 +314,7 @@ class SimulationEngine:
                     await self.provider.complete([{"role": "user", "content": msg}])
                     self.report.total_turns += 1
                     self.report.total_messages += 2
-                except Exception:
+                except Exception:  # noqa: BLE001 - simulation error counting
                     self._errors += 1
 
             # Advance the simulated clock by the step (in real seconds).
@@ -339,7 +338,7 @@ class SimulationEngine:
                     await self.provider.complete([{"role": "user", "content": content}])
                     self.report.total_turns += 1
                     self.report.total_messages += 2
-                except Exception:
+                except Exception:  # noqa: BLE001 - simulation error counting
                     self._errors += 1
 
             elif step_type == "check_state":
@@ -386,7 +385,7 @@ class SimulationEngine:
                         msg = f"Message {i}: How are you feeling?"
                         await provider.complete([{"role": "user", "content": msg}])
                         results["interactions"] += 1
-                    except Exception:
+                    except Exception:  # noqa: BLE001 - simulation error counting
                         results["errors"] += 1
 
                     if consistency and i % 100 == 0:

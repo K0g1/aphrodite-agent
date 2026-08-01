@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from ..character import Character
 from ..config import Config
 from ..db.database import Database
-from ..character import Character
 from ..types import MoodState, WorldState, new_id
-
 
 PROACTIVE_PROMPTS = {
     "morning_greeting": [
@@ -73,7 +72,7 @@ class ProactiveManager:
         if not config.enabled:
             return None
 
-        now = now_utc or datetime.now(timezone.utc)
+        now = now_utc or datetime.now(UTC)
         local_now = self._to_local_time(now)
 
         # 1. Check quiet hours
@@ -123,11 +122,11 @@ class ProactiveManager:
 
     async def mark_sent(self, message_id: str) -> None:
         """Mark a proactive message as delivered."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         await self.db.execute(
             "UPDATE proactive_events SET status = 'sent', sent_at_utc = ? WHERE id = ?",
-            (datetime.now(timezone.utc).isoformat(), message_id),
+            (datetime.now(UTC).isoformat(), message_id),
         )
         await self.db.commit()
 
@@ -186,7 +185,7 @@ class ProactiveManager:
     def _to_local_time(self, now: datetime) -> datetime:
         """Convert an aware timestamp to the configured local timezone."""
         if now.tzinfo is None:
-            now = now.replace(tzinfo=timezone.utc)
+            now = now.replace(tzinfo=UTC)
         if self.config.timezone == "system":
             return now.astimezone()
         from zoneinfo import ZoneInfo
@@ -205,8 +204,8 @@ class ProactiveManager:
             "WHERE event_type != 'system' AND status = 'sent' "
             "AND created_at_utc >= ? AND created_at_utc < ?",
             (
-                day_start.astimezone(timezone.utc).isoformat(),
-                day_end.astimezone(timezone.utc).isoformat(),
+                day_start.astimezone(UTC).isoformat(),
+                day_end.astimezone(UTC).isoformat(),
             ),
         )
         return rows[0]["c"] if rows else 0
@@ -218,7 +217,7 @@ class ProactiveManager:
         )
         if row and row.get("created_at_utc"):
             try:
-                return datetime.fromisoformat(row["created_at_utc"].replace("Z", "+00:00"))
+                return datetime.fromisoformat(row["created_at_utc"])
             except (ValueError, AttributeError):
                 pass
         return None

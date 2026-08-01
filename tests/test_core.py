@@ -1,13 +1,12 @@
 """Tests for Aphrodite Agent core modules."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from aphrodite.config import Config
-from aphrodite.types import MoodState, WorldState
 from aphrodite.character import Character, PersonalitySliders
-from aphrodite.context import PersonalityRenderer, assemble_prompt, approx_tokens
+from aphrodite.config import Config, MoodConfig
+from aphrodite.context import PersonalityRenderer, approx_tokens, assemble_prompt
 from aphrodite.mood import MoodManager
-from aphrodite.config import MoodConfig
+from aphrodite.types import MoodState, WorldState
 
 
 class TestPersonalityRenderer:
@@ -74,13 +73,13 @@ class TestWorldEngine:
         engine.config = config
 
         # Test different times
-        t1 = datetime(2026, 7, 22, 10, 0, tzinfo=timezone.utc)
+        t1 = datetime(2026, 7, 22, 10, 0, tzinfo=UTC)
         assert (
             "work" in engine._get_scheduled_activity(t1).lower()
             or "focused" in engine._get_scheduled_activity(t1).lower()
         )
 
-        t2 = datetime(2026, 7, 22, 2, 0, tzinfo=timezone.utc)
+        t2 = datetime(2026, 7, 22, 2, 0, tzinfo=UTC)
         assert "sleep" in engine._get_scheduled_activity(t2).lower()
 
 
@@ -102,7 +101,7 @@ class TestPromptAssembly:
             personality=PersonalitySliders(warmth=0.7),
             speech=SpeechStyle(register="casual"),
         )
-        now = datetime(2026, 7, 22, 14, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 7, 22, 14, 0, tzinfo=UTC)
 
         result = assemble_prompt(
             character=character,

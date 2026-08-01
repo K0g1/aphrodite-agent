@@ -8,8 +8,8 @@ to the .exe.
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
 import traceback
 from pathlib import Path
 
@@ -62,7 +62,7 @@ def main():
             sys.path.insert(0, str(cand))
 
     # --- 2. Ensure config directories exist ---
-    data_dir, config_dir = _ensure_home_dirs()
+    _data_dir, config_dir = _ensure_home_dirs()
 
     # Copy sample config if missing
     default_config = config_dir / "aphrodite.toml"

@@ -7,13 +7,12 @@ import json
 import logging
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
-from ..db.database import Database
-from ..config import Config
-from ..types import MoodState, new_id
 from ..character import Character
-
+from ..config import Config
+from ..db.database import Database
+from ..types import MoodState, new_id
 
 logger = logging.getLogger("aphrodite.journal")
 
@@ -77,7 +76,7 @@ class JournalManager:
         now_utc: datetime | None = None,
     ) -> JournalEntry:
         """Write a journal entry for today."""
-        now = now_utc or datetime.now(timezone.utc)
+        now = now_utc or datetime.now(UTC)
         # Derive the date in the configured local timezone, never UTC, so
         # entries land on the day the character actually experienced.
         date: str = local_date or self._to_local_time(now).strftime("%Y-%m-%d")
@@ -166,7 +165,7 @@ class JournalManager:
                 temperature=0.7,
             )
             return response.strip()
-        except Exception:
+        except Exception:  # noqa: BLE001 - degraded entry on any provider failure
             return ""
 
     async def get_entry(self, local_date: str) -> JournalEntry | None:
@@ -218,9 +217,7 @@ class JournalManager:
 
     async def get_summary(self, days: int = 7) -> str:
         """Get a summary of recent journal entries (window in local time)."""
-        target = self._to_local_time(datetime.now(timezone.utc) - timedelta(days=days)).strftime(
-            "%Y-%m-%d"
-        )
+        target = self._to_local_time(datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")
         rows = await self.db.fetch_all(
             "SELECT * FROM journal_entries WHERE local_date >= ? ORDER BY local_date DESC",
             (target,),
