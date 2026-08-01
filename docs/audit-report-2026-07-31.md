@@ -96,7 +96,19 @@ External review (ChatGPT Web): **"Production-quality for one trusted user on loo
 6. TLS option or documented reverse-proxy recipe for remote binds.
 7. FTS5 for memory search once corpus growth justifies it.
 
-## 8. How to reproduce
+## 9. Postscript (2026-08-01): repository reconciliation
+
+The audit work was merged onto the canonical GitHub repository
+(`K0g1/aphrodite-agent`) on top of its release infrastructure. As part of
+that, the three modules `export`, `journal`, and `simulation` live in the
+repository's package layout (`export/__init__.py`, `journal/__init__.py`,
+`simulation/__init__.py`); file references earlier in this report that say
+`export.py` / `journal.py` / `simulation.py` refer to those same files in
+their package form. All gates re-verified after the move (201 tests,
+85.8% coverage, ruff/mypy/bandit/pip-audit clean, wheel + fresh-venv suite
+green).
+
+## 10. How to reproduce
 
 ```bash
 cd /home/kevin/aphrodite-agent
