@@ -461,6 +461,10 @@ class TestWORLD002_DST:
 
     def _make_engine(self) -> WorldEngine:
         engine = _engine_no_db()
+        # Pin the timezone explicitly: these tests assert Vancouver DST
+        # transitions and must not depend on the host's system timezone
+        # (GitHub runners run UTC).
+        engine.config.timezone = "America/Vancouver"
         engine.config.world.state_update_interval_minutes = 0  # allow all updates
         return engine
 
