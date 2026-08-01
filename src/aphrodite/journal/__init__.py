@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import math
-import random
+import ast
+import json
+import logging
+import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from typing import Any
 
 from ..db.database import Database
 from ..config import Config
@@ -14,9 +15,13 @@ from ..types import MoodState, new_id
 from ..character import Character
 
 
+logger = logging.getLogger("aphrodite.journal")
+
+
 @dataclass
 class JournalEntry:
     """A daily reflective journal entry written by the character."""
+
     id: str = field(default_factory=new_id)
     local_date: str = ""
     written_at_utc: str = ""
@@ -49,7 +54,7 @@ Write the journal entry now (first person, past tense for today's events):"""
 
 
 FALLBACK_ENTRIES = [
-    "Today was a pretty ordinary day. Spent most of it working on some projects, had a few quiet moments to think. Nothing特别 exciting, but sometimes those are the best days.",
+    "Today was a pretty ordinary day. Spent most of it working on some projects, had a few quiet moments to think. Nothing especially exciting, but sometimes those are the best days.",
     "It's been a quiet day. Got some things done, had some time to reflect. I'm feeling okay — not great, not bad. Just steady.",
     "Today felt productive. Made progress on a few things I've been putting off. Had some good conversations too. Ending the day feeling pretty content.",
 ]
@@ -63,13 +68,19 @@ class JournalManager:
         self.config = config
         self._llm = llm or provider
 
-    async def write_entry(self, character: Character, mood: MoodState,
-                          world_events: list[dict] | None = None,
-                          local_date: str | None = None,
-                          now_utc: datetime | None = None) -> JournalEntry:
+    async def write_entry(
+        self,
+        character: Character,
+        mood: MoodState,
+        world_events: list[dict] | None = None,
+        local_date: str | None = None,
+        now_utc: datetime | None = None,
+    ) -> JournalEntry:
         """Write a journal entry for today."""
         now = now_utc or datetime.now(timezone.utc)
-        date = local_date or now.strftime("%Y-%m-%d")
+        # Derive the date in the configured local timezone, never UTC, so
+        # entries land on the day the character actually experienced.
+        date: str = local_date or self._to_local_time(now).strftime("%Y-%m-%d")
 
         # Check if entry already exists
         existing = await self.get_entry(date)
@@ -93,7 +104,7 @@ class JournalManager:
         # Generate entry text
         body = await self._generate_entry(character, events_summary, mood)
         if not body:
-            body = random.choice(FALLBACK_ENTRIES)
+            body = secrets.choice(FALLBACK_ENTRIES)
 
         # Generate summary
         summary = self._summarize(body)
@@ -102,15 +113,26 @@ class JournalManager:
         entry_id = new_id()
         event_ids = [e.get("id", "") for e in (world_events or [])[:10]]
 
+        # A small reflective delta for the after-writing mood (slightly calmer
+        # than before) so the two fields are not always identical.
+        mood_after = MoodState(
+            valence=max(-1.0, min(1.0, mood.valence + 0.02)),
+            arousal=max(0.0, min(1.0, mood.arousal - 0.03)),
+            dominance=mood.dominance,
+            affection=mood.affection,
+            trust=mood.trust,
+            curiosity=mood.curiosity,
+        )
+
         await self.db.save_journal(
             entry_id=entry_id,
             local_date=date,
             written_at=now.isoformat(),
             body=body,
             summary=summary,
-            source_events=str(event_ids),
-            mood_before=str(mood.to_dict()),
-            mood_after=str(mood.to_dict()),
+            source_events=json.dumps(event_ids),
+            mood_before=json.dumps(mood.to_dict()),
+            mood_after=json.dumps(mood_after.to_dict()),
         )
 
         return JournalEntry(
@@ -121,11 +143,12 @@ class JournalManager:
             body_text=body,
             summary_text=summary,
             mood_before=mood,
-            mood_after=mood,
+            mood_after=mood_after,
         )
 
-    async def _generate_entry(self, character: Character, events_summary: str,
-                                mood: MoodState) -> str:
+    async def _generate_entry(
+        self, character: Character, events_summary: str, mood: MoodState
+    ) -> str:
         """Generate journal entry text using LLM or fallback."""
         if not self._llm:
             return ""
@@ -162,13 +185,18 @@ class JournalManager:
             return None
         return self._row_to_entry(rows[0])
 
-    async def is_due(self, now_utc: datetime, timezone_str: str = "America/Vancouver") -> bool:
-        """Check if a journal entry is due."""
-        try:
-            from zoneinfo import ZoneInfo
-            local_now = now_utc.astimezone(ZoneInfo(timezone_str))
-        except Exception:
-            local_now = now_utc
+    def _to_local_time(self, now_utc: datetime, timezone_str: str | None = None) -> datetime:
+        """Convert an aware UTC timestamp to the configured local timezone."""
+        timezone_name = timezone_str or self.config.timezone
+        if timezone_name == "system":
+            return now_utc.astimezone()
+        from zoneinfo import ZoneInfo
+
+        return now_utc.astimezone(ZoneInfo(timezone_name))
+
+    async def is_due(self, now_utc: datetime, timezone_str: str | None = None) -> bool:
+        """Check if a journal entry is due in the configured timezone."""
+        local_now = self._to_local_time(now_utc, timezone_str)
 
         local_date = local_now.strftime("%Y-%m-%d")
         current_hour = local_now.hour
@@ -179,7 +207,9 @@ class JournalManager:
         journal_hour, journal_minute = map(int, journal_time_str.split(":"))
 
         # Is it past the configured time?
-        if current_hour < journal_hour or (current_hour == journal_hour and current_minute < journal_minute):
+        if current_hour < journal_hour or (
+            current_hour == journal_hour and current_minute < journal_minute
+        ):
             return False
 
         # Already have an entry for today?
@@ -187,15 +217,16 @@ class JournalManager:
         return existing is None
 
     async def get_summary(self, days: int = 7) -> str:
-        """Get a summary of recent journal entries."""
-        from datetime import timedelta
-        target = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+        """Get a summary of recent journal entries (window in local time)."""
+        target = self._to_local_time(datetime.now(timezone.utc) - timedelta(days=days)).strftime(
+            "%Y-%m-%d"
+        )
         rows = await self.db.fetch_all(
             "SELECT * FROM journal_entries WHERE local_date >= ? ORDER BY local_date DESC",
             (target,),
         )
         if not rows:
-            return "No journal entries found in the last {days} days."
+            return f"No journal entries found in the last {days} days."
 
         parts = [f"Journal summary (last {days} days):"]
         for row in rows:
@@ -204,9 +235,7 @@ class JournalManager:
 
     async def export_all(self) -> list[dict]:
         """Export all journal entries as a list of dicts."""
-        rows = await self.db.fetch_all(
-            "SELECT * FROM journal_entries ORDER BY local_date"
-        )
+        rows = await self.db.fetch_all("SELECT * FROM journal_entries ORDER BY local_date")
         return [dict(r) for r in rows]
 
     def _summarize(self, text: str) -> str:
@@ -219,21 +248,36 @@ class JournalManager:
         return first if first else "A reflective journal entry."
 
     def _row_to_entry(self, row: dict) -> JournalEntry:
-        import json
-        try:
-            mood_before = json.loads(row.get("mood_before_json", "{}"))
-            mood_after = json.loads(row.get("mood_after_json", "{}"))
-        except (json.JSONDecodeError, TypeError):
-            mood_before = {}
-            mood_after = {}
+        source_event_ids = _decode_json_field(
+            row.get("source_event_ids_json", "[]"), [], "source_event_ids_json"
+        )
+        mood_before = _decode_json_field(row.get("mood_before_json", "{}"), {}, "mood_before_json")
+        mood_after = _decode_json_field(row.get("mood_after_json", "{}"), {}, "mood_after_json")
 
         return JournalEntry(
             id=row["id"],
             local_date=row["local_date"],
             written_at_utc=row["written_at_utc"],
-            source_event_ids=json.loads(row.get("source_event_ids_json", "[]")),
+            source_event_ids=source_event_ids if isinstance(source_event_ids, list) else [],
             body_text=row.get("body_text", ""),
             summary_text=row.get("summary_text", ""),
             mood_before=MoodState(**mood_before) if mood_before else MoodState(),
             mood_after=MoodState(**mood_after) if mood_after else MoodState(),
         )
+
+
+def _decode_json_field(raw: object, default: object, field_name: str):
+    """Decode canonical JSON, with safe support for legacy Python repr rows."""
+    if not isinstance(raw, str):
+        logger.warning("Invalid non-string journal field %s", field_name)
+        return default
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            legacy_value = ast.literal_eval(raw)
+        except (ValueError, SyntaxError):
+            logger.warning("Invalid journal JSON in %s", field_name)
+            return default
+        logger.warning("Loaded legacy non-JSON journal field %s", field_name)
+        return legacy_value

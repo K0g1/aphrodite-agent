@@ -381,6 +381,7 @@
 <script>
 "use strict";
 const API_BASE = "";
+const API_TOKEN = __APHRODITE_API_TOKEN__;
 const REQUEST_TIMEOUT_MS = 120000;
 
 const E = {
@@ -431,6 +432,7 @@ async function req(path, opts={}) {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
   const headers = new Headers(opts.headers||{});
+  headers.set("Authorization", `Bearer ${API_TOKEN}`);
   if (opts.body && !headers.has("Content-Type")) headers.set("Content-Type","application/json");
   try {
     const r = await fetch(API_BASE+path, {...opts, headers, signal: ctrl.signal});
@@ -455,6 +457,17 @@ function toast(msg, type="info") {
 }
 
 function scrollDown() { requestAnimationFrame(() => E.chatScroll.scrollTop = E.chatScroll.scrollHeight); }
+
+function textNode(tag, className, text) {
+  const element = document.createElement(tag);
+  element.className = className;
+  element.textContent = String(text ?? "");
+  return element;
+}
+
+function setCopy(container, className, text) {
+  container.replaceChildren(textNode("div", className, text));
+}
 
 function msg(role, text) {
   if (E.welcome) E.welcome.remove();
@@ -512,31 +525,44 @@ async function loadWorld(silent) {
 }
 
 async function loadJournal(silent) {
-  E.journalContent.innerHTML='<div class="loading-copy">Loading...</div>';
+  setCopy(E.journalContent, "loading-copy", "Loading...");
   try {
     const d = await req("/v1/journal/latest");
-    E.journalContent.innerHTML=`<div class="journal-date">${d.date||"No date"}</div><p class="journal-summary">${d.summary||"No summary"}</p><p class="journal-body">${d.body||"No body"}</p>`;
-  } catch(e) { E.journalContent.innerHTML=`<div class="error-copy">${e.message}</div>`; if(!silent) toast(e.message,"error"); throw e; }
+    E.journalContent.replaceChildren(
+      textNode("div", "journal-date", d.date || "No date"),
+      textNode("p", "journal-summary", d.summary || "No summary"),
+      textNode("p", "journal-body", d.body || "No body")
+    );
+  } catch(e) { setCopy(E.journalContent, "error-copy", e.message); if(!silent) toast(e.message,"error"); throw e; }
 }
 
 async function loadChars(silent) {
-  E.characterList.innerHTML='<div class="loading-copy">Loading...</div>';
+  setCopy(E.characterList, "loading-copy", "Loading...");
   try {
     const d = await req("/v1/characters");
     const chars = d?.characters||[];
-    E.characterList.innerHTML=chars.length?chars.map(c=>`<div class="character-item"><div class="character-item-title">${c.id||"?"}</div><div class="character-files">${c.files||0} files</div></div>`).join(""):'<div class="empty-copy">No characters.</div>';
-  } catch(e) { E.characterList.innerHTML=`<div class="error-copy">${e.message}</div>`; if(!silent) toast(e.message,"error"); throw e; }
+    if (!chars.length) return setCopy(E.characterList, "empty-copy", "No characters.");
+    E.characterList.replaceChildren(...chars.map(c => {
+      const item = textNode("div", "character-item", "");
+      item.append(
+        textNode("div", "character-item-title", c.id || "?"),
+        textNode("div", "character-files", `${Number(c.files) || 0} files`)
+      );
+      return item;
+    }));
+  } catch(e) { setCopy(E.characterList, "error-copy", e.message); if(!silent) toast(e.message,"error"); throw e; }
 }
 
 async function searchMem(q) {
   q = String(q||"").trim();
   if (!q) return;
-  E.memorySearchButton.disabled=true; E.memoryResults.innerHTML='<div class="loading-copy">Searching...</div>';
+  E.memorySearchButton.disabled=true; setCopy(E.memoryResults, "loading-copy", "Searching...");
   try {
     const d = await req(`/v1/memory/search?q=${encodeURIComponent(q)}`);
     const results = d?.results||[];
-    E.memoryResults.innerHTML=results.length?results.map(r=>`<div class="memory-item">${r.content||"?"}</div>`).join(""):'<div class="empty-copy">No matches.</div>';
-  } catch(e) { E.memoryResults.innerHTML=`<div class="error-copy">${e.message}</div>`; toast(e.message,"error"); }
+    if (!results.length) setCopy(E.memoryResults, "empty-copy", "No matches.");
+    else E.memoryResults.replaceChildren(...results.map(r => textNode("div", "memory-item", r.content || "?")));
+  } catch(e) { setCopy(E.memoryResults, "error-copy", e.message); toast(e.message,"error"); }
   finally { E.memorySearchButton.disabled=false; }
 }
 

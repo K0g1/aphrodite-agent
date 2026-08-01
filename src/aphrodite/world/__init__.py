@@ -8,16 +8,18 @@ import json
 import logging
 import math
 from datetime import datetime, timezone, timedelta
-from typing import Any
 
 from ..config import Config
 from ..db.database import Database
 from ..types import (
-    MoodState, WorldState, WorldWeather, EventStatus, Provenance,
-    EventType, new_id, PartOfDay,
+    MoodState,
+    WorldState,
+    WorldWeather,
+    new_id,
 )
 
 logger = logging.getLogger("aphrodite.world")
+DEFAULT_WORLD_SEED = "aphrodite-default"
 
 
 def _coerce_utc_datetime(value: datetime | str) -> datetime:
@@ -51,10 +53,12 @@ def _validate_advance_hours(hours: object) -> int | float:
 class WorldEngine:
     """Deterministic world state engine."""
 
+    _world_secret: str
+
     def __init__(self, db: Database, config: Config):
         self.db = db
         self.config = config
-        self._world_secret = "aphrodite-default"  # Per-character in production
+        self._world_seed = DEFAULT_WORLD_SEED
         self._advance_lock = asyncio.Lock()
 
     async def get_state(self) -> WorldState:
@@ -63,8 +67,16 @@ class WorldEngine:
         if not row:
             return WorldState()
 
-        mood_data = json.loads(row.get("mood_json", "{}"))
-        weather_data = json.loads(row.get("weather_json", "{}"))
+        # Tolerate corrupt/legacy JSON in the state columns: a bad value must
+        # not brick the whole agent (mirrors journal._decode_json_field).
+        try:
+            mood_data = json.loads(row.get("mood_json") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            mood_data = {}
+        try:
+            weather_data = json.loads(row.get("weather_json") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            weather_data = {}
 
         mood = MoodState(
             valence=mood_data.get("valence", 0.15),
@@ -94,8 +106,15 @@ class WorldEngine:
 
     async def update_state(self, now_utc: datetime) -> list[dict]:
         """Advance the world state to the current time. Returns list of events generated."""
+        async with self._advance_lock:
+            return await self._update_state_unlocked(now_utc)
+
+    async def _update_state_unlocked(self, now_utc: datetime) -> list[dict]:
+        """Advance the world state; caller must hold ``_advance_lock``."""
+        now_utc = _coerce_utc_datetime(now_utc)
         state = await self.get_state()
-        events = []
+        events: list[dict] = []
+        interval_seconds = self.config.world.state_update_interval_minutes * 60
 
         # Calculate time since last update
         if state.last_processed_utc:
@@ -108,7 +127,8 @@ class WorldEngine:
                 elapsed_seconds = 0
         else:
             elapsed = 0
-            elapsed_seconds = 0
+            # Force one initialization pass so the persisted clock cannot remain blank.
+            elapsed_seconds = interval_seconds
 
         # Detect negative elapsed (update is earlier than simulation clock)
         if elapsed_seconds < 0:
@@ -122,8 +142,13 @@ class WorldEngine:
             )
             return events
 
+        # Cap catch-up so a long offline gap does not snap mood/state in one tick.
+        max_catchup_seconds = self.config.world.max_catchup_hours * 3600
+        if elapsed_seconds > max_catchup_seconds:
+            elapsed_seconds = max_catchup_seconds
+            elapsed = max_catchup_seconds / 3600
+
         # Only update if enough time has passed
-        interval_seconds = self.config.world.state_update_interval_minutes * 60
         if elapsed_seconds < interval_seconds:
             return events
 
@@ -138,27 +163,35 @@ class WorldEngine:
         new_activity = self._get_scheduled_activity(local_time)
         if new_activity != state.activity:
             state.activity = new_activity
-            events.append({
-                "event_type": "activity_change",
-                "summary": f"Changed activity to: {new_activity}",
-                "local_time": local_time.strftime("%H:%M"),
-            })
+            events.append(
+                {
+                    "event_type": "activity_change",
+                    "summary": f"Changed activity to: {new_activity}",
+                    "local_time": local_time.strftime("%H:%M"),
+                }
+            )
 
         # Persist
-        await self.db.update_world_state(
-            last_processed_utc=now_utc.isoformat(),
-            current_activity=state.activity,
-            activity_started_utc=now_utc.isoformat(),
-            mood_json=json.dumps(state.mood.to_dict()),
-            weather_json=json.dumps({
-                "condition": state.weather.condition,
-                "temperature_c": state.weather.temperature_c,
-                "precipitation": state.weather.precipitation,
-                "wind": state.weather.wind,
-            }),
-            current_setting=state.current_setting,
-            updated_at_utc=now_utc.isoformat(),
-        )
+        updates: dict[str, str] = {
+            "last_processed_utc": now_utc.isoformat(),
+            "mood_json": json.dumps(state.mood.to_dict()),
+            "weather_json": json.dumps(
+                {
+                    "condition": state.weather.condition,
+                    "temperature_c": state.weather.temperature_c,
+                    "precipitation": state.weather.precipitation,
+                    "wind": state.weather.wind,
+                }
+            ),
+            "current_setting": state.current_setting,
+            "updated_at_utc": now_utc.isoformat(),
+        }
+        # activity_started_utc means "when the CURRENT activity began": only
+        # rewrite it when the activity actually changed.
+        if "activity_change" in {e["event_type"] for e in events}:
+            updates["current_activity"] = state.activity
+            updates["activity_started_utc"] = now_utc.isoformat()
+        await self.db.update_world_state(**updates)
 
         # Log events to database
         for evt in events:
@@ -172,7 +205,7 @@ class WorldEngine:
                 title=evt["event_type"],
                 summary=evt["summary"],
                 starts_at=now_utc.isoformat(),
-                local_date=now_utc.strftime("%Y-%m-%d"),
+                local_date=local_time.strftime("%Y-%m-%d"),
             )
 
         return events
@@ -205,7 +238,8 @@ class WorldEngine:
                 )
 
             target = simulation_now + timedelta(hours=hours)
-            return await self.update_state(target)
+            # Lock already held: use the unlocked variant to avoid deadlock.
+            return await self._update_state_unlocked(target)
 
     def get_previous_activity(self, state: WorldState) -> str:
         """Generate a plausible 'before the user messaged' description."""
@@ -221,14 +255,21 @@ class WorldEngine:
             "thinking about a conversation from earlier",
         ]
         # Deterministic selection based on current time
-        seed = f"{self._world_secret}|activity|{state.activity}"
+        seed = f"{self._get_world_seed()}|activity|{state.activity}"
         idx = int(hashlib.sha256(seed.encode()).hexdigest(), 16) % len(activities)
         return activities[idx]
 
     def _decay_mood(self, mood: MoodState, hours_elapsed: float) -> MoodState:
-        """Decay mood toward baseline over time."""
-        # Baseline values
-        baseline = MoodState()
+        """Decay mood toward the configured baseline over time."""
+        mcfg = self.config.mood
+        baseline = MoodState(
+            valence=mcfg.baseline_valence,
+            arousal=mcfg.baseline_arousal,
+            dominance=mcfg.baseline_dominance,
+            affection=mcfg.baseline_affection,
+            trust=mcfg.baseline_trust,
+            curiosity=mcfg.baseline_curiosity,
+        )
 
         # Decay rates (fraction per hour)
         decay_rates = {
@@ -245,12 +286,22 @@ class WorldEngine:
             return base + (current - base) * factor
 
         return MoodState(
-            valence=max(-1.0, min(1.0, decay(mood.valence, baseline.valence, decay_rates["valence"]))),
-            arousal=max(0.0, min(1.0, decay(mood.arousal, baseline.arousal, decay_rates["arousal"]))),
-            dominance=max(0.0, min(1.0, decay(mood.dominance, baseline.dominance, decay_rates["dominance"]))),
-            affection=max(0.0, min(1.0, decay(mood.affection, baseline.affection, decay_rates["affection"]))),
+            valence=max(
+                -1.0, min(1.0, decay(mood.valence, baseline.valence, decay_rates["valence"]))
+            ),
+            arousal=max(
+                0.0, min(1.0, decay(mood.arousal, baseline.arousal, decay_rates["arousal"]))
+            ),
+            dominance=max(
+                0.0, min(1.0, decay(mood.dominance, baseline.dominance, decay_rates["dominance"]))
+            ),
+            affection=max(
+                0.0, min(1.0, decay(mood.affection, baseline.affection, decay_rates["affection"]))
+            ),
             trust=max(0.0, min(1.0, decay(mood.trust, baseline.trust, decay_rates["trust"]))),
-            curiosity=max(0.0, min(1.0, decay(mood.curiosity, baseline.curiosity, decay_rates["curiosity"]))),
+            curiosity=max(
+                0.0, min(1.0, decay(mood.curiosity, baseline.curiosity, decay_rates["curiosity"]))
+            ),
         )
 
     def _generate_weather(self, now_utc: datetime, current: WorldWeather) -> WorldWeather:
@@ -259,8 +310,20 @@ class WorldEngine:
         month = local.month
 
         # Simple seasonal temperature
-        base_temps = {1: 3, 2: 5, 3: 7, 4: 10, 5: 14, 6: 17,
-                      7: 20, 8: 20, 9: 16, 10: 11, 11: 7, 12: 4}
+        base_temps = {
+            1: 3,
+            2: 5,
+            3: 7,
+            4: 10,
+            5: 14,
+            6: 17,
+            7: 20,
+            8: 20,
+            9: 16,
+            10: 11,
+            11: 7,
+            12: 4,
+        }
         base = base_temps.get(month, 15)
 
         # Time-of-day variation
@@ -276,15 +339,16 @@ class WorldEngine:
 
         effective_temp = base + temp_offset
 
-        # Deterministic weather condition
-        seed = f"{self._world_secret}|weather|{now_utc.strftime('%Y-%m-%d')}"
+        # Deterministic weather condition seeded on the LOCAL date so the
+        # day boundary matches the local calendar, like the temperature.
+        seed = f"{self._get_world_seed()}|weather|{local.strftime('%Y-%m-%d')}"
         h = int(hashlib.sha256(seed.encode()).hexdigest(), 16)
         rain_chance = 0.3 if month in [10, 11, 12, 1, 2, 3] else 0.1
         conditions = ["partly_cloudy", "cloudy", "clear", "rain", "light_rain"]
         weights = [0.35, 0.25, 0.30, rain_chance, rain_chance * 0.5]
         total_w = sum(weights)
         r = (h % 1000) / 1000 * total_w
-        cumulative = 0
+        cumulative = 0.0
         condition = "partly_cloudy"
         for c, w in zip(conditions, weights):
             cumulative += w
@@ -326,9 +390,14 @@ class WorldEngine:
             return "getting ready for bed"
 
     def _to_local_time(self, utc_time: datetime) -> datetime:
-        """Convert UTC to local time (Vancouver)."""
-        try:
-            from zoneinfo import ZoneInfo
-            return utc_time.astimezone(ZoneInfo("America/Vancouver"))
-        except Exception:
-            return utc_time + timedelta(hours=-7)  # Fallback
+        """Convert UTC time to the configured local timezone."""
+        utc_time = _coerce_utc_datetime(utc_time)
+        if self.config.timezone == "system":
+            return utc_time.astimezone()
+        from zoneinfo import ZoneInfo
+
+        return utc_time.astimezone(ZoneInfo(self.config.timezone))
+
+    def _get_world_seed(self) -> str:
+        """Return the seed while preserving the legacy direct-test seam."""
+        return getattr(self, "_world_seed", getattr(self, "_world_secret", DEFAULT_WORLD_SEED))

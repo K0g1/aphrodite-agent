@@ -4,15 +4,21 @@ import pytest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from aphrodite.config import Config, load_config
-from aphrodite.types import MoodState, WorldState, Memory, MemoryType, Sensitivity
-from aphrodite.character import Character, PersonalitySliders, CharacterIdentity, SpeechStyle, EmotionalModel
-from aphrodite.context import PersonalityRenderer, assemble_prompt, approx_tokens
+from aphrodite.config import Config
+from aphrodite.types import MoodState, WorldState, Memory, MemoryType
+from aphrodite.character import (
+    Character,
+    PersonalitySliders,
+    CharacterIdentity,
+    SpeechStyle,
+    EmotionalModel,
+)
+from aphrodite.context import PersonalityRenderer, assemble_prompt
 from aphrodite.mood import MoodManager
 from aphrodite.config import MoodConfig
 from aphrodite.extraction import MemoryExtractor
-from aphrodite.journal import JournalManager, JournalEntry
-from aphrodite.simulation import SimulationEngine, MockProvider, SimulatedClock, SimulationScript
+from aphrodite.journal import JournalManager
+from aphrodite.simulation import MockProvider, SimulatedClock
 
 
 class TestMemoryExtractor:
@@ -50,6 +56,7 @@ class TestJournalManager:
     @pytest.mark.asyncio
     async def test_is_due(self):
         from aphrodite.db import Database
+
         db = Database(Path("/tmp/test_aphrodite_journal.db"))
         await db.initialize()
 
@@ -67,6 +74,7 @@ class TestJournalManager:
 
         await db.close()
         import os
+
         os.remove("/tmp/test_aphrodite_journal.db")
 
     def test_summarize(self):
@@ -94,6 +102,7 @@ class TestSimulation:
     def test_mock_provider(self):
         provider = MockProvider()
         import asyncio
+
         response = asyncio.run(provider.complete([{"role": "user", "content": "Hello"}]))
         assert isinstance(response, str)
         assert len(response) > 0
@@ -101,6 +110,7 @@ class TestSimulation:
     def test_mock_provider_deterministic(self):
         provider = MockProvider()
         import asyncio
+
         responses = set()
         for i in range(10):
             r = asyncio.run(provider.complete([{"role": "user", "content": f"Test {i}"}]))
@@ -112,6 +122,7 @@ class TestSimulation:
         provider = MockProvider()
         provider._failure_rate = 1.0
         import asyncio
+
         with pytest.raises(Exception):
             asyncio.run(provider.complete([{"role": "user", "content": "Hello"}]))
 
@@ -120,9 +131,14 @@ class TestPersonalityRenderer:
     def test_render_all_sliders(self):
         renderer = PersonalityRenderer()
         sliders = PersonalitySliders(
-            warmth=0.7, directness=0.5, playfulness=0.4,
-            expressiveness=0.6, initiative=0.4, verbosity=0.4,
-            formality=0.3, flirtation=0.0,
+            warmth=0.7,
+            directness=0.5,
+            playfulness=0.4,
+            expressiveness=0.6,
+            initiative=0.4,
+            verbosity=0.4,
+            formality=0.3,
+            flirtation=0.0,
         )
         result = renderer.render(sliders)
         assert "Warmth" in result
@@ -133,11 +149,18 @@ class TestPersonalityRenderer:
 
     def test_slider_boundaries(self):
         renderer = PersonalityRenderer()
-        for val, expected_label in [(0.0, "very low"), (0.3, "low"), (0.5, "moderate"), (0.7, "high"), (1.0, "very high")]:
+        for val, expected_label in [
+            (0.0, "very low"),
+            (0.3, "low"),
+            (0.5, "moderate"),
+            (0.7, "high"),
+            (1.0, "very high"),
+        ]:
             sliders = PersonalitySliders(warmth=val)
             result = renderer.render(sliders)
             band_idx = renderer._band_index(val)
             from aphrodite.context import SLIDER_DESCRIPTIONS
+
             expected = SLIDER_DESCRIPTIONS["warmth"][band_idx]
             assert expected in result
 
@@ -201,8 +224,12 @@ class TestPromptAssembly:
             character=character,
             mood=MoodState(valence=0.5, arousal=0.4),
             world=WorldState(activity="reading at the cafe", current_setting="cafe"),
-            short_term_memories=[Memory(content="User prefers tea over coffee.", memory_type=MemoryType.PREFERENCE)],
-            long_term_memories=[Memory(content="User is working on a research project.", importance=0.8)],
+            short_term_memories=[
+                Memory(content="User prefers tea over coffee.", memory_type=MemoryType.PREFERENCE)
+            ],
+            long_term_memories=[
+                Memory(content="User is working on a research project.", importance=0.8)
+            ],
             recent_turns=[],
             current_user_message="Hi Mira, how are you?",
             now=now,

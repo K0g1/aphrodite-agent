@@ -12,8 +12,9 @@ class MoodManager:
     def __init__(self, config: MoodConfig):
         self.config = config
 
-    def apply_event_impact(self, mood: MoodState, valence_delta: float = 0,
-                           arousal_delta: float = 0) -> MoodState:
+    def apply_event_impact(
+        self, mood: MoodState, valence_delta: float = 0, arousal_delta: float = 0
+    ) -> MoodState:
         """Apply bounded event impact to mood."""
         max_delta = self.config.max_delta_per_turn
 

@@ -1,11 +1,10 @@
 """Tests for Aphrodite Agent core modules."""
 
-import pytest
 from datetime import datetime, timezone
 
-from aphrodite.config import Config, load_config
-from aphrodite.types import MoodState, WorldState, Memory, new_id
-from aphrodite.character import Character, PersonalitySliders, parse_character
+from aphrodite.config import Config
+from aphrodite.types import MoodState, WorldState
+from aphrodite.character import Character, PersonalitySliders
 from aphrodite.context import PersonalityRenderer, assemble_prompt, approx_tokens
 from aphrodite.mood import MoodManager
 from aphrodite.config import MoodConfig
@@ -33,9 +32,18 @@ class TestPersonalityRenderer:
     def test_band_boundaries(self):
         renderer = PersonalityRenderer()
         # Test exact boundaries
-        for val, expected_band in [(0.0, 0), (0.19, 0), (0.2, 1), (0.39, 1),
-                                    (0.4, 2), (0.59, 2), (0.6, 3), (0.79, 3),
-                                    (0.8, 4), (1.0, 4)]:
+        for val, expected_band in [
+            (0.0, 0),
+            (0.19, 0),
+            (0.2, 1),
+            (0.39, 1),
+            (0.4, 2),
+            (0.59, 2),
+            (0.6, 3),
+            (0.79, 3),
+            (0.8, 4),
+            (1.0, 4),
+        ]:
             assert renderer._band_index(val) == expected_band
 
 
@@ -60,8 +68,6 @@ class TestMoodSystem:
 class TestWorldEngine:
     def test_activity_by_time(self):
         from aphrodite.world import WorldEngine
-        from aphrodite.config import Config
-        from datetime import time
 
         config = Config()
         engine = WorldEngine.__new__(WorldEngine)
@@ -69,7 +75,10 @@ class TestWorldEngine:
 
         # Test different times
         t1 = datetime(2026, 7, 22, 10, 0, tzinfo=timezone.utc)
-        assert "work" in engine._get_scheduled_activity(t1).lower() or "focused" in engine._get_scheduled_activity(t1).lower()
+        assert (
+            "work" in engine._get_scheduled_activity(t1).lower()
+            or "focused" in engine._get_scheduled_activity(t1).lower()
+        )
 
         t2 = datetime(2026, 7, 22, 2, 0, tzinfo=timezone.utc)
         assert "sleep" in engine._get_scheduled_activity(t2).lower()
@@ -84,9 +93,12 @@ class TestMemorySystem:
 
 class TestPromptAssembly:
     def test_basic_assembly(self):
-        from aphrodite.character import CharacterIdentity, SpeechStyle, EmotionalModel
+        from aphrodite.character import CharacterIdentity, SpeechStyle
+
         character = Character(
-            identity=CharacterIdentity(name="Mira", pronouns="she/her", core_identity="A warm companion"),
+            identity=CharacterIdentity(
+                name="Mira", pronouns="she/her", core_identity="A warm companion"
+            ),
             personality=PersonalitySliders(warmth=0.7),
             speech=SpeechStyle(register="casual"),
         )

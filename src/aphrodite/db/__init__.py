@@ -1,2 +1,3 @@
 """Database package."""
-from .database import Database
+
+from .database import Database as Database

@@ -7,6 +7,32 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+
+_CHARACTER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def validate_character_id(character_id: str) -> str:
+    """Validate a portable character identifier before using it as a path."""
+    if (
+        not isinstance(character_id, str)
+        or not _CHARACTER_ID_PATTERN.fullmatch(character_id)
+        or character_id.upper() in _WINDOWS_RESERVED_NAMES
+    ):
+        raise ValueError(
+            "character ID must be 1-64 ASCII letters, numbers, underscores, or hyphens"
+        )
+    return character_id
+
 
 @dataclass
 class CharacterIdentity:
@@ -56,6 +82,7 @@ class EmotionalModel:
 @dataclass
 class Character:
     """Parsed character from markdown files."""
+
     id: str = "default"
     identity: CharacterIdentity = field(default_factory=CharacterIdentity)
     personality: PersonalitySliders = field(default_factory=PersonalitySliders)
@@ -77,7 +104,7 @@ def parse_character(character_dir: Path) -> Character:
     """Parse a character from a directory of markdown files."""
     char = Character()
     char.id = character_dir.name
-    
+
     if not character_dir.exists():
         return char
 
@@ -127,7 +154,7 @@ def _strip_frontmatter(content: str) -> str:
     if content.startswith("---"):
         end = content.find("\n---", 3)
         if end != -1:
-            return content[end + 4:].lstrip("\n")
+            return content[end + 4 :].lstrip("\n")
     return content
 
 
@@ -139,29 +166,17 @@ def _extract_frontmatter(content: str) -> dict[str, Any]:
     if end == -1:
         return {}
     fm_text = content[3:end]
-    # Simple YAML parser for flat key-value pairs
-    result = {}
-    for line in fm_text.strip().split("\n"):
-        if ":" in line:
-            key, _, value = line.partition(":")
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            # Try to parse lists
-            if value.startswith("[") and value.endswith("]"):
-                value = [v.strip().strip('"') for v in value[1:-1].split(",") if v.strip()]
-            # Try to parse numbers
-            elif value.replace(".", "").isdigit():
-                value = float(value) if "." in value else int(value)
-            elif value.lower() in ("true", "false"):
-                value = value.lower() == "true"
-            result[key] = value
-    return result
+    try:
+        result = yaml.safe_load(fm_text)
+    except yaml.YAMLError:
+        return {}
+    return result if isinstance(result, dict) else {}
 
 
 def _parse_identity(content: str) -> CharacterIdentity:
     """Parse identity from markdown."""
     identity = CharacterIdentity()
-    
+
     # Check for YAML frontmatter first
     fm = _extract_frontmatter(content)
     if "name" in fm:
@@ -169,14 +184,19 @@ def _parse_identity(content: str) -> CharacterIdentity:
     if "pronouns" in fm:
         identity.pronouns = str(fm["pronouns"])
     if "age" in fm:
-        identity.age = int(fm["age"])
-    
+        try:
+            identity.age = int(fm["age"])
+        except (TypeError, ValueError):
+            # A malformed age must not brick the whole app: fall back to the
+            # default (mirrors the lenient personality parsing below).
+            identity.age = 24
+
     # Parse markdown sections
     text = _strip_frontmatter(content)
-    
+
     # Extract sections
     sections = _extract_sections(text)
-    
+
     if "identity" in sections:
         identity.core_identity = sections["identity"].strip()
     if "values" in sections:
@@ -187,20 +207,25 @@ def _parse_identity(content: str) -> CharacterIdentity:
         identity.dislikes = _bullet_list(sections["dislikes"])
     if "boundaries" in sections:
         identity.boundaries = _bullet_list(sections["boundaries"])
-    
+
     return identity
 
 
 def _parse_personality(content: str) -> PersonalitySliders:
     """Parse personality sliders from markdown."""
     sliders = PersonalitySliders()
-    
+
     fm = _extract_frontmatter(content)
     if "sliders" in fm and isinstance(fm["sliders"], dict):
         for key, val in fm["sliders"].items():
             if hasattr(sliders, key):
-                setattr(sliders, key, float(val))
-    
+                try:
+                    parsed = float(val)
+                except (TypeError, ValueError):
+                    continue
+                if 0.0 <= parsed <= 1.0:
+                    setattr(sliders, key, parsed)
+
     return sliders
 
 
@@ -209,7 +234,7 @@ def _parse_speech(content: str) -> SpeechStyle:
     speech = SpeechStyle()
     text = _strip_frontmatter(content)
     sections = _extract_sections(text)
-    
+
     if "register" in sections:
         speech.register = sections["register"].strip().split("\n")[0]
     if "signature mannerisms" in sections or "mannerisms" in sections:
@@ -218,7 +243,7 @@ def _parse_speech(content: str) -> SpeechStyle:
     if "avoid saying" in sections or "forbidden" in sections:
         key = "avoid saying" if "avoid saying" in sections else "forbidden"
         speech.avoid = _bullet_list(sections[key])
-    
+
     return speech
 
 
@@ -227,12 +252,12 @@ def _parse_emotional(content: str) -> EmotionalModel:
     emotion = EmotionalModel()
     text = _strip_frontmatter(content)
     sections = _extract_sections(text)
-    
+
     if "baseline" in sections:
         emotion.baseline = sections["baseline"].strip().split("\n")[0]
     if "triggers" in sections:
         emotion.triggers = _bullet_list(sections["triggers"])
-    
+
     return emotion
 
 
@@ -240,8 +265,8 @@ def _extract_sections(text: str) -> dict[str, str]:
     """Extract markdown sections by header."""
     sections = {}
     current_header = None
-    current_lines = []
-    
+    current_lines: list[str] = []
+
     for line in text.split("\n"):
         header_match = re.match(r"^#{1,3}\s+(.+)$", line)
         if header_match:
@@ -251,10 +276,10 @@ def _extract_sections(text: str) -> dict[str, str]:
             current_lines = []
         else:
             current_lines.append(line)
-    
+
     if current_header:
         sections[current_header.lower()] = "\n".join(current_lines)
-    
+
     return sections
 
 

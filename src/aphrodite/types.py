@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
-from typing import Any
 from uuid import uuid4
 
 
@@ -170,6 +168,7 @@ class JournalEntry:
 @dataclass
 class ContextPacket:
     """Compiled context ready for prompt assembly."""
+
     system_prompt: str = ""
     date_time_line: str = ""
     character_identity: str = ""

@@ -6,43 +6,35 @@ Test IDs:
   WORLD-002 — DST timezone boundaries
   WORLD-007 — Mood bounds (clamping and validation)
 """
+
 from __future__ import annotations
 
-import asyncio
 import json
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from aphrodite.character import (
     Character,
-    CharacterIdentity,
-    EmotionalModel,
-    PersonalitySliders,
-    SpeechStyle,
     _bullet_list,
     _extract_frontmatter,
     _extract_sections,
-    _parse_emotional,
-    _parse_identity,
-    _parse_personality,
-    _parse_speech,
     _strip_frontmatter,
     parse_character,
 )
 from aphrodite.config import Config, MoodConfig
 from aphrodite.db.database import Database
 from aphrodite.mood import MoodManager
-from aphrodite.types import MoodState, Sensitivity, new_id
+from aphrodite.types import MoodState
 from aphrodite.world import WorldEngine
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_config(**overrides) -> Config:
     """Build a Config with optional overrides, no filesystem side-effects."""
@@ -68,6 +60,7 @@ async def _init_db_and_manager():
     await db.initialize()
     config = Config()
     from aphrodite.memory import MemoryManager
+
     mgr = MemoryManager(db, config)
     return mgr, db
 
@@ -75,6 +68,7 @@ async def _init_db_and_manager():
 # ===================================================================
 # CHAR-003 — Character markdown parser: invalid / empty / edge fields
 # ===================================================================
+
 
 class TestCHAR003_EmptyCharacter:
     """Parsing an empty or nonexistent character directory yields defaults."""
@@ -136,12 +130,14 @@ class TestCHAR003_InvalidFields:
         # So it becomes float(3.14), then int(fm["age"]) on 3.14 → 3
         assert isinstance(char.identity.age, int)
 
-    def test_identity_garbage_age(self, tmp_path):
+    def test_identity_garbage_age_defaults(self, tmp_path):
+        # A malformed age is tolerated (defaults to 24) so one bad file can
+        # never brick app startup (final audit, 2026-07-31).
         d = tmp_path / "bad-age"
         d.mkdir()
         (d / "identity.md").write_text("---\nage: not-a-number\n---\n")
-        with pytest.raises(ValueError):
-            parse_character(d)
+        char = parse_character(d)
+        assert char.identity.age == 24
 
     def test_identity_no_frontmatter_no_sections(self, tmp_path):
         d = tmp_path / "no-sec"
@@ -271,7 +267,7 @@ class TestCHAR003_InvalidFields:
     def test_list_frontmatter_field(self, tmp_path):
         d = tmp_path / "list"
         d.mkdir()
-        (d / "identity.md").write_text('---\nname: ListTest\ntags: [a, b, c]\n---\n')
+        (d / "identity.md").write_text("---\nname: ListTest\ntags: [a, b, c]\n---\n")
         char = parse_character(d)
         assert char.identity.name == "ListTest"
 
@@ -279,6 +275,7 @@ class TestCHAR003_InvalidFields:
 # ===================================================================
 # MEM-004 — Memory system: duplicates, contradictions, superseding
 # ===================================================================
+
 
 @pytest.fixture
 async def mem_env():
@@ -325,9 +322,7 @@ class TestMEM004_DuplicateAndContradictoryMemories:
         await mgr.correct_memory(original.id, "User lives in London")
 
         # Old memory is superseded
-        old_row = await db.fetch_one(
-            "SELECT * FROM memories WHERE id = ?", (original.id,)
-        )
+        old_row = await db.fetch_one("SELECT * FROM memories WHERE id = ?", (original.id,))
         assert old_row is not None
         assert old_row["status"] == "superseded"
 
@@ -369,8 +364,8 @@ class TestMEM004_DuplicateAndContradictoryMemories:
     async def test_contradictory_memories_both_active(self, mem_env):
         """Two contradictory facts can coexist as active (no conflict resolution)."""
         mgr, _ = mem_env
-        m1 = await mgr.add_memory("User's favorite color is blue", memory_type="fact")
-        m2 = await mgr.add_memory("User's favorite color is red", memory_type="fact")
+        await mgr.add_memory("User's favorite color is blue", memory_type="fact")
+        await mgr.add_memory("User's favorite color is red", memory_type="fact")
         results = await mgr.search_long_term("favorite color")
         assert len(results) == 2
 
@@ -420,8 +415,17 @@ class TestMEM004_DuplicateAndContradictoryMemories:
     async def test_add_memory_type_variants(self, mem_env):
         """All MemoryType enum values can be stored."""
         mgr, _ = mem_env
-        for mtype in ["fact", "preference", "correction", "event",
-                       "boundary", "relationship", "project", "mood", "open_loop"]:
+        for mtype in [
+            "fact",
+            "preference",
+            "correction",
+            "event",
+            "boundary",
+            "relationship",
+            "project",
+            "mood",
+            "open_loop",
+        ]:
             m = await mgr.add_memory(f"test {mtype}", memory_type=mtype)
             assert m.memory_type.value == mtype
 
@@ -451,6 +455,7 @@ class TestMEM004_DuplicateAndContradictoryMemories:
 # ===================================================================
 # WORLD-002 — DST timezone boundaries
 # ===================================================================
+
 
 class TestWORLD002_DST:
     """World engine timezone handling around DST transitions."""
@@ -523,6 +528,7 @@ class TestWORLD002_DST:
         """Weather generation respects the DST-correct month."""
         engine = self._make_engine()
         from aphrodite.types import WorldWeather
+
         # March 12, 2025 15:00 PDT = UTC 22:00
         utc_time = datetime(2025, 3, 12, 22, 0, tzinfo=timezone.utc)
         weather = engine._generate_weather(utc_time, WorldWeather())
@@ -533,6 +539,7 @@ class TestWORLD002_DST:
         """Weather generation works for every hour across a DST boundary."""
         engine = self._make_engine()
         from aphrodite.types import WorldWeather
+
         for hour_utc in range(24):
             utc_time = datetime(2025, 3, 9, hour_utc, 0, tzinfo=timezone.utc)
             # Should not raise
@@ -543,6 +550,7 @@ class TestWORLD002_DST:
         """State update crosses DST without error."""
         engine = self._make_engine()
         from aphrodite.types import MoodState
+
         mood = MoodState(valence=0.5, arousal=0.6)
         elapsed = 2.0  # hours
         decayed = engine._decay_mood(mood, elapsed)
@@ -567,6 +575,7 @@ class TestWORLD002_DST:
         """Same UTC time produces same weather (deterministic hash)."""
         engine = self._make_engine()
         from aphrodite.types import WorldWeather
+
         utc_time = datetime(2025, 6, 15, 12, 0, tzinfo=timezone.utc)
         w1 = engine._generate_weather(utc_time, WorldWeather())
         w2 = engine._generate_weather(utc_time, WorldWeather())
@@ -577,24 +586,43 @@ class TestWORLD002_DST:
         """Every hour maps to a valid activity."""
         engine = self._make_engine()
         expected_keywords = {
-            0: "sleep", 1: "sleep", 2: "sleep", 3: "sleep",
-            4: "sleep", 5: "sleep", 6: "sleep",
-            7: "wak", 8: "ready", 9: "work", 10: "work", 11: "work",
-            12: "lunch", 13: "work", 14: "work", 15: "work", 16: "work",
-            17: "head", 18: "dinner", 19: "relax", 20: "relax",
-            21: "wind", 22: "bed",
+            0: "sleep",
+            1: "sleep",
+            2: "sleep",
+            3: "sleep",
+            4: "sleep",
+            5: "sleep",
+            6: "sleep",
+            7: "wak",
+            8: "ready",
+            9: "work",
+            10: "work",
+            11: "work",
+            12: "lunch",
+            13: "work",
+            14: "work",
+            15: "work",
+            16: "work",
+            17: "head",
+            18: "dinner",
+            19: "relax",
+            20: "relax",
+            21: "wind",
+            22: "bed",
         }
         for hour, keyword in expected_keywords.items():
             dt = datetime(2026, 1, 1, hour, 30, tzinfo=timezone.utc)
             local = dt  # Use UTC directly since _get_scheduled_activity just uses .hour
             activity = engine._get_scheduled_activity(local)
-            assert keyword.lower() in activity.lower(), \
+            assert keyword.lower() in activity.lower(), (
                 f"Hour {hour}: expected '{keyword}' in '{activity}'"
+            )
 
 
 # ===================================================================
 # WORLD-007 — Mood bounds
 # ===================================================================
+
 
 class TestWORLD007_MoodBounds:
     """Mood state must stay within bounds; clamping and decay must be safe."""
@@ -617,8 +645,9 @@ class TestWORLD007_MoodBounds:
         """Decay must not push mood outside [-1, 1] for valence or [0, 1] for others."""
         engine = _engine_no_db()
         # Test extreme high values
-        mood_high = MoodState(valence=1.0, arousal=1.0, dominance=1.0,
-                              affection=1.0, trust=1.0, curiosity=1.0)
+        mood_high = MoodState(
+            valence=1.0, arousal=1.0, dominance=1.0, affection=1.0, trust=1.0, curiosity=1.0
+        )
         decayed = engine._decay_mood(mood_high, hours_elapsed=100)
         assert -1.0 <= decayed.valence <= 1.0
         assert 0.0 <= decayed.arousal <= 1.0
@@ -646,8 +675,9 @@ class TestWORLD007_MoodBounds:
     def test_mood_decay_approaches_baseline(self):
         """After many hours, mood should approach baseline values."""
         engine = _engine_no_db()
-        mood = MoodState(valence=0.9, arousal=0.9, dominance=0.9,
-                         affection=0.9, trust=0.9, curiosity=0.9)
+        mood = MoodState(
+            valence=0.9, arousal=0.9, dominance=0.9, affection=0.9, trust=0.9, curiosity=0.9
+        )
         decayed = engine._decay_mood(mood, hours_elapsed=50)
         # Baseline valence=0.15, arousal=0.40, etc.
         assert abs(decayed.valence - 0.15) < 0.3
@@ -690,8 +720,9 @@ class TestWORLD007_MoodBounds:
 
     def test_mood_to_dict_roundtrip(self):
         """MoodState.to_dict preserves all fields."""
-        mood = MoodState(valence=0.42, arousal=0.31, dominance=0.77,
-                         affection=0.12, trust=0.88, curiosity=0.55)
+        mood = MoodState(
+            valence=0.42, arousal=0.31, dominance=0.77, affection=0.12, trust=0.88, curiosity=0.55
+        )
         d = mood.to_dict()
         assert d["valence"] == 0.42
         assert d["arousal"] == 0.31
@@ -728,8 +759,9 @@ class TestWORLD007_MoodBounds:
     def test_decay_rates_per_dimension(self):
         """Each dimension decays at its own rate."""
         engine = _engine_no_db()
-        mood = MoodState(valence=1.0, arousal=1.0, dominance=1.0,
-                         affection=1.0, trust=1.0, curiosity=1.0)
+        mood = MoodState(
+            valence=1.0, arousal=1.0, dominance=1.0, affection=1.0, trust=1.0, curiosity=1.0
+        )
         decayed = engine._decay_mood(mood, hours_elapsed=10)
         # Arousal decays fastest (0.15), trust slowest (0.01)
         assert decayed.arousal < decayed.trust
@@ -747,10 +779,8 @@ class TestWORLD007_MoodBounds:
 
     def test_mood_boundary_values_exact(self):
         """Exact boundary values should be accepted."""
-        MoodState(valence=-1.0, arousal=0.0, dominance=0.0,
-                  affection=0.0, trust=0.0, curiosity=0.0)
-        MoodState(valence=1.0, arousal=1.0, dominance=1.0,
-                  affection=1.0, trust=1.0, curiosity=1.0)
+        MoodState(valence=-1.0, arousal=0.0, dominance=0.0, affection=0.0, trust=0.0, curiosity=0.0)
+        MoodState(valence=1.0, arousal=1.0, dominance=1.0, affection=1.0, trust=1.0, curiosity=1.0)
         # No exception = pass
 
     def test_decay_large_elapsed(self):
@@ -774,8 +804,9 @@ class TestWORLD007_MoodBounds:
         """Clamping one dimension should not alter others."""
         config = MoodConfig(max_delta_per_turn=0.08)
         manager = MoodManager(config)
-        mood = MoodState(valence=0.5, arousal=0.5, dominance=0.5,
-                         affection=0.5, trust=0.5, curiosity=0.5)
+        mood = MoodState(
+            valence=0.5, arousal=0.5, dominance=0.5, affection=0.5, trust=0.5, curiosity=0.5
+        )
         impacted = manager.apply_event_impact(mood, valence_delta=-2.0, arousal_delta=0.0)
         assert impacted.dominance == 0.5
         assert impacted.affection == 0.5
@@ -794,8 +825,9 @@ class TestWORLD007_MoodBounds:
 
     def test_mood_json_serialization_roundtrip(self):
         """MoodState can be serialized to JSON and back."""
-        mood = MoodState(valence=0.3, arousal=0.7, dominance=0.5,
-                         affection=0.6, trust=0.4, curiosity=0.8)
+        mood = MoodState(
+            valence=0.3, arousal=0.7, dominance=0.5, affection=0.6, trust=0.4, curiosity=0.8
+        )
         d = mood.to_dict()
         serialized = json.dumps(d)
         deserialized = json.loads(serialized)

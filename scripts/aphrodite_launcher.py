@@ -75,6 +75,7 @@ def main():
         for sample in sample_candidates:
             if sample.exists():
                 import shutil
+
                 shutil.copy(sample, default_config)
                 break
 
@@ -92,7 +93,7 @@ def main():
     # --- 4. Import and run CLI ---
     try:
         from aphrodite_cli.main import cli
-    except ImportError as exc:
+    except ImportError:
         print("=" * 60, file=sys.stderr)
         print("Aphrodite Agent launcher failed to import.", file=sys.stderr)
         print(f"  sys.path: {sys.path}", file=sys.stderr)

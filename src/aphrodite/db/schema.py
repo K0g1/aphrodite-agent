@@ -110,6 +110,27 @@ CREATE TABLE IF NOT EXISTS settings_cache (
     value TEXT NOT NULL,
     updated_at_utc TEXT NOT NULL
 );
+
+-- Proactive message delivery history
+CREATE TABLE IF NOT EXISTS proactive_events (
+    id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'cancelled', 'failed')),
+    title TEXT NOT NULL,
+    scheduled_at TEXT NOT NULL,
+    sent_at_utc TEXT,
+    created_at_utc TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_proactive_created
+ON proactive_events(created_at_utc DESC);
+
+-- Minimal schema version marker for future migrations.
+CREATE TABLE IF NOT EXISTS schema_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+INSERT OR IGNORE INTO schema_metadata (key, value) VALUES ('schema_version', '1');
 """
 
 SEED_WORLD_STATE = """
@@ -124,3 +145,7 @@ def get_schema_sql() -> str:
 
 def get_seed_sql() -> str:
     return SEED_WORLD_STATE
+
+
+#: Bump when the schema changes and a migration script is shipped.
+CURRENT_SCHEMA_VERSION = 1

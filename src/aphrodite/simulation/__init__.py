@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from typing import Any, Callable
-import asyncio
+import hashlib
 import json
+import math
 import random
+import tempfile
+from pathlib import Path
 
 from ..config import Config
 from ..db.database import Database
 from ..types import MoodState, new_id
 from ..world import WorldEngine
 from ..journal import JournalManager
+from ..providers import Provider
 
 
 MOCK_RESPONSES = [
@@ -33,6 +36,7 @@ MOCK_RESPONSES = [
 @dataclass
 class SimulationReport:
     """Report from a simulation run."""
+
     simulation_id: str = field(default_factory=new_id)
     duration_hours: float = 0
     real_time_seconds: float = 0
@@ -43,15 +47,17 @@ class SimulationReport:
     total_messages: int = 0
     total_events: int = 0
     total_journal_entries: int = 0
-    memory_operations: dict = field(default_factory=lambda: {"created": 0, "retrieved": 0})
+    memory_operations: dict[str, int] = field(
+        default_factory=lambda: {"created": 0, "retrieved": 0}
+    )
     consistency_score: float = 1.0
     errors: int = 0
     warnings: int = 0
 
-    final_mood: dict = field(default_factory=dict)
-    trait_changes: dict = field(default_factory=dict)
+    final_mood: dict[str, object] = field(default_factory=dict)
+    trait_changes: dict[str, object] = field(default_factory=dict)
     seasons_experienced: list[str] = field(default_factory=list)
-    events_by_type: dict = field(default_factory=dict)
+    events_by_type: dict[str, int] = field(default_factory=dict)
 
 
 class SimulatedClock:
@@ -60,7 +66,8 @@ class SimulatedClock:
     def __init__(self, start_utc: datetime | None = None, speed: float = 1.0):
         self._start = start_utc or datetime(2026, 7, 1, tzinfo=timezone.utc)
         self._elapsed = timedelta(0)
-        self._speed = speed
+        self._speed = 1.0
+        self.speed = speed  # route through the validated setter
         self._frozen = False
 
     def now_utc(self) -> datetime:
@@ -71,7 +78,8 @@ class SimulatedClock:
             self._elapsed += timedelta(seconds=real_seconds * self._speed)
 
     def advance_hours(self, hours: float) -> None:
-        self._elapsed += timedelta(hours=hours)
+        if not self._frozen:
+            self._elapsed += timedelta(hours=hours)
 
     def freeze(self) -> None:
         self._frozen = True
@@ -104,12 +112,14 @@ class MockProvider:
             self._fail_next = False
             raise Exception("Simulated provider failure")
 
-        if random.random() < self._failure_rate:
+        # This is intentional simulation randomness, not security-sensitive entropy.
+        if random.random() < self._failure_rate:  # nosec B311
             raise Exception("Simulated random provider failure")
 
         # Deterministic response selection
         msg = messages[-1]["content"] if messages else ""
-        idx = hash(msg + str(self.call_count)) % len(self._responses)
+        digest = hashlib.sha256(f"{msg}|{self.call_count}".encode()).hexdigest()
+        idx = int(digest, 16) % len(self._responses)
         return self._responses[idx]
 
     async def health_check(self) -> bool:
@@ -123,16 +133,20 @@ class MockProvider:
 @dataclass
 class SimulationScript:
     """Scripted simulation instructions."""
+
     steps: list[dict] = field(default_factory=list)
 
     @classmethod
     def from_jsonl(cls, path: str) -> "SimulationScript":
         steps = []
         with open(path) as f:
-            for line in f:
+            for line_no, line in enumerate(f, start=1):
                 line = line.strip()
                 if line:
-                    steps.append(json.loads(line))
+                    try:
+                        steps.append(json.loads(line))
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(f"Malformed script line {line_no}: {exc}") from exc
         return cls(steps=steps)
 
 
@@ -143,54 +157,121 @@ class SimulationEngine:
         self.db = db
         self.config = config
         self.clock = SimulatedClock()
-        self.provider = MockProvider()
+        self.provider: MockProvider | Provider = MockProvider()
         self.world_engine = WorldEngine(db, config)
         self.journal_manager = JournalManager(db, config, provider=self.provider)
         self.report = SimulationReport()
         self._errors = 0
         self._warnings = 0
+        self._consistency_checks = 0
+        self._consistency_failures = 0
+        self._isolate_runs = True
 
-    async def run(self, hours: float, character: str = "mira",
-                  speed: float = 100.0, mock_provider: bool = True,
-                  script: SimulationScript | None = None) -> SimulationReport:
-        """Run a simulation."""
+    async def run(
+        self,
+        hours: float,
+        character: str = "mira",
+        speed: float = 100.0,
+        mock_provider: bool = True,
+        script: SimulationScript | None = None,
+    ) -> SimulationReport:
+        """Run a simulation.
+
+        The simulation always runs against a scratch database so that simulated
+        (possibly future-dated) world state can never leak into the caller's
+        production database. Pass ``isolate=False`` only in tests that need the
+        original behavior.
+        """
+        if hours < 0:
+            raise ValueError("hours must be non-negative")
+        if speed <= 0:
+            raise ValueError("speed must be positive")
+        # NaN/inf pass the comparisons above; reject them explicitly.
+        if isinstance(hours, bool) or not isinstance(hours, (int, float)):
+            raise ValueError("hours must be a finite number")
+        if isinstance(speed, bool) or not isinstance(speed, (int, float)):
+            raise ValueError("speed must be a finite number")
+        if not math.isfinite(hours) or not math.isfinite(speed):
+            raise ValueError("hours and speed must be finite")
         self.clock = SimulatedClock(speed=speed)
         self.report = SimulationReport(
             duration_hours=hours,
             character=character,
             provider_mode="mock" if mock_provider else "live",
         )
+        self.provider = MockProvider() if mock_provider else Provider(self.config.active_provider)
+        self._errors = 0
+        self._warnings = 0
+        self._consistency_checks = 0
+        self._consistency_failures = 0
         start_time = datetime.now(timezone.utc)
 
-        if script:
-            await self._run_script(script)
+        # Isolate the run on a scratch database (default) so the caller's DB is
+        # never polluted with simulated state.
+        original_db = self.db
+        temp_dir: tempfile.TemporaryDirectory | None = None
+        if self._isolate_runs:
+            temp_dir = tempfile.TemporaryDirectory(prefix="aphrodite-sim-")
+            sim_db = Database(Path(temp_dir.name) / "sim.db")
+            await sim_db.initialize()
+            self.db = sim_db
         else:
-            await self._run_free(hours, character, mock_provider)
+            sim_db = self.db
+        self.world_engine = WorldEngine(sim_db, self.config)
+        self.journal_manager = JournalManager(sim_db, self.config, provider=self.provider)
 
-        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-        self.report.real_time_seconds = elapsed
+        try:
+            if script:
+                await self._run_script(script)
+            else:
+                await self._run_free(hours, character, mock_provider)
 
-        # Gather final state
-        events = await self.db.get_events_on_date(self.clock.now_utc().strftime("%Y-%m-%d"))
-        self.report.total_events = len(events)
-        self.report.errors = self._errors
-        self.report.warnings = self._warnings
+            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+            self.report.real_time_seconds = elapsed
 
-        # Count events by type
-        type_counts = {}
-        for e in events:
-            t = e.get("event_type", "unknown")
-            type_counts[t] = type_counts.get(t, 0) + 1
-        self.report.events_by_type = type_counts
+            self.report.errors = self._errors
+            self.report.warnings = self._warnings
+            if self._consistency_checks:
+                self.report.consistency_score = max(
+                    0.0,
+                    1.0 - (self._consistency_failures / self._consistency_checks),
+                )
+
+            final_state = await sim_db.get_world_state()
+            if final_state:
+                try:
+                    self.report.final_mood = json.loads(final_state.get("mood_json") or "{}")
+                except json.JSONDecodeError:
+                    self._warnings += 1
+                    self.report.warnings = self._warnings
+        finally:
+            if isinstance(self.provider, Provider):
+                await self.provider.close()
+            if temp_dir is not None:
+                await sim_db.close()
+                temp_dir.cleanup()
+                self.db = original_db
+                self.world_engine = WorldEngine(original_db, self.config)
+                self.journal_manager = JournalManager(
+                    original_db, self.config, provider=self.provider
+                )
 
         return self.report
 
     async def _run_free(self, hours: float, character: str, mock_provider: bool):
-        """Free-running simulation with periodic user messages."""
+        """Free-running simulation with periodic user messages.
+
+        Iterations step by ``15 * speed`` simulated minutes so ``speed``
+        actually accelerates the run instead of being a no-op.
+        """
         total_minutes = int(hours * 60)
+        step_minutes = max(15, int(round(15 * self.clock.speed)))
+        # Seeded RNG for reproducible simulations (not security-sensitive).
+        self._rng = random.Random(f"{self.clock.speed}|{hours}|free")  # nosec B311
 
         # Create a minimal character for journal writing
-        from .character import Character, CharacterIdentity, PersonalitySliders, SpeechStyle
+        from ..character import Character, CharacterIdentity, PersonalitySliders, SpeechStyle
+
         sim_char = Character(
             id=character,
             identity=CharacterIdentity(name=character.title()),
@@ -198,12 +279,13 @@ class SimulationEngine:
             speech=SpeechStyle(),
         )
 
-        for minute in range(0, total_minutes, 15):  # Tick every 15 minutes
+        last_message_mark = -1
+        for minute in range(0, total_minutes, step_minutes):
             now = self.clock.now_utc()
 
             # Advance world engine
             events = await self.world_engine.update_state(now)
-            self.report.total_events += len(events)
+            self._record_events(events)
 
             # Check journal due
             if await self.journal_manager.is_due(now):
@@ -216,26 +298,28 @@ class SimulationEngine:
                 if entry:
                     self.report.total_journal_entries += 1
 
-            # Send a user message every 4-8 hours
-            if minute % 360 == 0:  # Every 6 hours
-                msg = random.choice([
-                    "Hey, how's it going?",
-                    "Just thinking about you. What are you up to?",
-                    "How was your day?",
-                    "I'm back. What have you been doing?",
-                    "Hey, feeling kinda tired today. How about you?",
-                ])
+            # Send a user message every 6 simulated hours.
+            six_hour_mark = minute // 360
+            if six_hour_mark != last_message_mark:
+                last_message_mark = six_hour_mark
+                msg = self._rng.choice(
+                    [
+                        "Hey, how's it going?",
+                        "Just thinking about you. What are you up to?",
+                        "How was your day?",
+                        "I'm back. What have you been doing?",
+                        "Hey, feeling kinda tired today. How about you?",
+                    ]
+                )
                 try:
-                    resp = await self.provider.complete(
-                        [{"role": "user", "content": msg}]
-                    )
-                    self.report.total_messages += 1
-                    self.report.memory_operations["retrieved"] += 1
+                    await self.provider.complete([{"role": "user", "content": msg}])
+                    self.report.total_turns += 1
+                    self.report.total_messages += 2
                 except Exception:
                     self._errors += 1
 
-            # Advance clock
-            self.clock.advance(15 * 60 / self.clock.speed)  # Real time for 15 sim minutes
+            # Advance the simulated clock by the step (in real seconds).
+            self.clock.advance(step_minutes * 60 / self.clock.speed)
 
     async def _run_script(self, script: SimulationScript):
         """Run a scripted simulation."""
@@ -247,90 +331,135 @@ class SimulationEngine:
                 self.clock.advance_hours(hours)
                 now = self.clock.now_utc()
                 events = await self.world_engine.update_state(now)
-                self.report.total_events += len(events)
+                self._record_events(events)
 
             elif step_type == "user_message":
                 content = step.get("content", "")
                 try:
-                    resp = await self.provider.complete(
-                        [{"role": "user", "content": content}]
-                    )
-                    self.report.total_messages += 1
+                    await self.provider.complete([{"role": "user", "content": content}])
+                    self.report.total_turns += 1
+                    self.report.total_messages += 2
                 except Exception:
                     self._errors += 1
 
             elif step_type == "check_state":
                 expected = step.get("expected", {})
-                # Verify state matches expected (for deterministic tests)
+                state = await self.db.get_world_state() or {}
+                for key, expected_value in expected.items():
+                    self._consistency_checks += 1
+                    if state.get(key) != expected_value:
+                        self._consistency_failures += 1
+                        self._warnings += 1
 
             elif step_type == "check_journal":
-                from datetime import timezone
                 now = self.clock.now_utc()
-                entry = await self.journal_manager.get_entry(now.strftime("%Y-%m-%d"))
+                local_date = self.journal_manager._to_local_time(now).strftime("%Y-%m-%d")
+                entry = await self.journal_manager.get_entry(local_date)
                 if entry:
                     self.report.total_journal_entries += 1
 
-    async def run_stress_test(self, interactions: int = 10000,
-                               consistency: bool = True) -> dict:
-        """Run a stress test with many interactions."""
+            else:
+                self._warnings += 1
+
+    def _record_events(self, events: list[dict]) -> None:
+        """Accumulate event totals without replacing earlier simulation dates."""
+        self.report.total_events += len(events)
+        for event in events:
+            event_type = event.get("event_type", "unknown")
+            self.report.events_by_type[event_type] = (
+                self.report.events_by_type.get(event_type, 0) + 1
+            )
+
+    async def run_stress_test(self, interactions: int = 10000, consistency: bool = True) -> dict:
+        """Run a stress test with many interactions against an isolated scratch DB."""
+        if interactions < 0:
+            raise ValueError("interactions must be non-negative")
         results = {"interactions": 0, "errors": 0, "consistency_issues": 0}
 
-        for i in range(interactions):
+        provider = MockProvider()
+        with tempfile.TemporaryDirectory(prefix="aphrodite-stress-") as temp_root:
+            db = Database(Path(temp_root) / "stress.db")
+            await db.initialize()
             try:
-                msg = f"Message {i}: How are you feeling?"
-                await self.provider.complete([{"role": "user", "content": msg}])
-                results["interactions"] += 1
-            except Exception:
-                results["errors"] += 1
+                for i in range(interactions):
+                    try:
+                        msg = f"Message {i}: How are you feeling?"
+                        await provider.complete([{"role": "user", "content": msg}])
+                        results["interactions"] += 1
+                    except Exception:
+                        results["errors"] += 1
 
-            if consistency and i % 100 == 0:
-                # Check that world state hasn't diverged
-                state = await self.db.get_world_state()
-                if state and not state.get("current_activity"):
-                    results["consistency_issues"] += 1
+                    if consistency and i % 100 == 0:
+                        # Check that world state hasn't diverged
+                        state = await db.get_world_state()
+                        if state and not state.get("current_activity"):
+                            results["consistency_issues"] += 1
+            finally:
+                await db.close()
 
         return results
 
-    async def run_determinism_test(self, runs: int = 10) -> dict:
+    async def run_determinism_test(self, runs: int = 10) -> dict[str, int | str]:
         """Verify same inputs produce identical outputs."""
-        results = {"runs": 0, "identical": 0, "diverged": 0, "first_hash": ""}
+        if runs <= 0:
+            raise ValueError("runs must be positive")
+        baseline_hash = ""
+        identical = 0
+        diverged = 0
 
-        for run in range(runs):
-            # Create isolated database
-            temp_db = Database(self.config.data_path / f"test_run_{run}.db")
-            await temp_db.initialize()
+        with tempfile.TemporaryDirectory(prefix="aphrodite-determinism-") as temp_root:
+            for run in range(runs):
+                temp_db = Database(Path(temp_root) / f"run-{run}.db")
+                await temp_db.initialize()
+                try:
+                    isolated_engine = WorldEngine(temp_db, self.config)
+                    clock = SimulatedClock()
+                    for _ in range(100):
+                        await isolated_engine.update_state(clock.now_utc())
+                        clock.advance_hours(1)
 
-            clock = SimulatedClock(speed=100)
-            for _ in range(100):  # 100 ticks
-                now = clock.now_utc()
-                await self.world_engine.update_state(now)
-                clock.advance(3600 / 100)
+                    state = await temp_db.get_world_state()
+                    canonical_state = json.dumps(state, sort_keys=True, separators=(",", ":"))
+                    state_hash = hashlib.sha256(canonical_state.encode()).hexdigest()
+                finally:
+                    await temp_db.close()
 
-            state = await temp_db.get_world_state()
-            state_hash = str(state)
-            await temp_db.close()
+                if run == 0:
+                    baseline_hash = state_hash
+                if state_hash == baseline_hash:
+                    identical += 1
+                else:
+                    diverged += 1
 
-            if run == 0:
-                results["first_hash"] = state_hash[:32]
-            elif state_hash == results.get("last_hash", ""):
-                results["identical"] += 1
-            else:
-                results["diverged"] += 1
-
-            results["last_hash"] = state_hash
-            results["runs"] = run + 1
-
-        return results
+        return {
+            "runs": runs,
+            "identical": identical,
+            "diverged": diverged,
+            "first_hash": baseline_hash,
+        }
 
     async def run_long_gap_test(self, hours: int = 8760) -> dict:
-        """Simulate a long absence and verify coherence."""
-        self.clock.advance_hours(hours)
-        now = self.clock.now_utc()
-        events = await self.world_engine.update_state(now)
-        state = await self.db.get_world_state()
+        """Simulate a long absence on an isolated scratch DB and verify coherence."""
+        if hours < 0:
+            raise ValueError("hours must be non-negative")
+        with tempfile.TemporaryDirectory(prefix="aphrodite-longgap-") as temp_root:
+            db = Database(Path(temp_root) / "gap.db")
+            await db.initialize()
+            try:
+                engine = WorldEngine(db, self.config)
+                clock = SimulatedClock()
+                clock.advance_hours(hours)
+                now = clock.now_utc()
+                events = await engine.update_state(now)
+                state = await db.get_world_state()
+                row = await db.fetch_one("SELECT COUNT(*) as c FROM events")
+                total_events = row["c"] if row else 0
+            finally:
+                await db.close()
+
         return {
             "hours_simulated": hours,
             "events_generated": len(events),
-            "final_activity": state.activity if state else "unknown",
-            "coherent": len(events) < 5000  # Should not flood
+            "final_activity": state.get("current_activity", "unknown") if state else "unknown",
+            "coherent": total_events < 5000,  # A single catch-up must not flood the timeline
         }

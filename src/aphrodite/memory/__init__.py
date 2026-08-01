@@ -25,6 +25,7 @@ class MemoryManager:
     ) -> Memory:
         """Add a new memory."""
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc).isoformat()
         memory_id = new_id()
 
@@ -36,6 +37,7 @@ class MemoryManager:
             importance=importance,
             sensitivity=sensitivity,
             created_at=now,
+            source_message_id=source_message_id,
         )
 
         return Memory(
@@ -65,31 +67,38 @@ class MemoryManager:
     async def correct_memory(self, memory_id: str, new_content: str) -> None:
         """Correct a memory (mark old as superseded, create new)."""
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc).isoformat()
 
         # Get old memory
         old = await self.db.fetch_one("SELECT * FROM memories WHERE id = ?", (memory_id,))
         if old:
-            # Mark old as superseded
+            # Mark old as superseded and insert the corrected memory in ONE
+            # transaction so a crash cannot leave both active.
             await self.db.execute(
                 "UPDATE memories SET status = 'superseded', updated_at_utc = ? WHERE id = ?",
                 (now, memory_id),
             )
-            # Create new memory
-            await self.db.save_memory(
-                memory_id=new_id(),
-                memory_type=old["memory_type"],
-                content=new_content,
-                confidence=1.0,  # Direct correction = highest confidence
-                importance=old.get("importance", 0.5),
-                sensitivity=old.get("sensitivity", "normal"),
-                created_at=now,
+            await self.db.execute(
+                "INSERT INTO memories (id, memory_type, content, confidence, importance, sensitivity, source_message_id, status, created_at_utc, updated_at_utc) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)",
+                (
+                    new_id(),
+                    old["memory_type"],
+                    new_content,
+                    1.0,  # Direct correction = highest confidence
+                    old.get("importance", 0.5),
+                    old.get("sensitivity", "normal"),
+                    old.get("source_message_id"),
+                    now,
+                    now,
+                ),
             )
             await self.db.commit()
 
     async def forget_memory(self, memory_id: str) -> None:
         """Delete a memory."""
         from datetime import datetime, timezone
+
         now = datetime.now(timezone.utc).isoformat()
         await self.db.execute(
             "UPDATE memories SET status = 'deleted', updated_at_utc = ? WHERE id = ?",
@@ -99,7 +108,9 @@ class MemoryManager:
 
     async def get_stats(self) -> dict:
         """Get memory statistics."""
-        total = await self.db.fetch_one("SELECT COUNT(*) as c FROM memories WHERE status = 'active'")
+        total = await self.db.fetch_one(
+            "SELECT COUNT(*) as c FROM memories WHERE status = 'active'"
+        )
         by_type = await self.db.fetch_all(
             "SELECT memory_type, COUNT(*) as c FROM memories WHERE status = 'active' GROUP BY memory_type"
         )
